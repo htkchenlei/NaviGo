@@ -96,9 +96,13 @@ function hashKey(value: string): string {
 /**
  * 图标来源链（按优先级）：
  *  1. 管理员手动指定的图标 URL —— 最高优先级，直接使用
- *  2. /api/icon 服务端代理抓取 —— 公网域名，命中后由边缘缓存
- *  3. 公共 favicon 服务 —— 代理失败时的兜底（仅公网域名）
- *  4. 调用方渲染中文首字符头像 —— 由组件在 onerror 时接管
+ *  2. /api/icon 服务端代理 —— 公网域名；favicon 解析与公共 favicon 服务兜底都在服务端完成，
+ *     命中后由边缘缓存。浏览器侧只认这一个源。
+ *  3. 调用方渲染中文首字符头像 —— 由组件在 onerror 时接管
+ *
+ * 公共 favicon 服务刻意不走浏览器：DDG 对收录不到的站点返回的是 404 + 灰色占位图，
+ * 而 <img> 不看状态码、只看能不能解码，于是占位图会被当成「加载成功」，
+ * 把首字符兜底顶掉 —— 表现为一堆不同链接顶着同一个来路不明的图标。
  */
 export function iconSources(link: NavLink, activeUrl: string | null): string[] {
   if (link.iconUrl) return [link.iconUrl]
@@ -106,9 +110,5 @@ export function iconSources(link: NavLink, activeUrl: string | null): string[] {
   const domain = safeDomain(activeUrl) ?? safeDomain(link.urlWan) ?? safeDomain(link.urlLan) ?? safeDomain(link.urlVpn)
   if (!domain || isPrivateHost(domain)) return []
 
-  const version = hashKey(activeUrl || domain)
-  return [
-    proxiedIconUrl(domain, version),
-    `https://icons.duckduckgo.com/ip3/${domain}.ico`,
-  ]
+  return [proxiedIconUrl(domain, hashKey(activeUrl || domain))]
 }

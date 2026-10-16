@@ -110,6 +110,7 @@ interface RawIcon {
 
 async function fetchIcon(domain: string): Promise<RawIcon | null> {
   const origin = `https://${domain}`
+  const host = domain.split(':')[0]
 
   const direct = await fetchImage(`${origin}/favicon.ico`)
   if (direct) return direct
@@ -125,6 +126,13 @@ async function fetchIcon(domain: string): Promise<RawIcon | null> {
 
   const touch = await fetchImage(`${origin}/apple-touch-icon.png`)
   if (touch) return touch
+
+  // 公共 favicon 服务兜底必须留在服务端：目标站点没有图标时它返回的是
+  // 404 + 一张灰色占位图，而 <img> 不看状态码、只看能不能解码 —— 放在前端会被
+  // 当成「加载成功」，把首字符兜底顶掉，两条不同的链接却显示成同一个图标。
+  // 这里经过 safeFetch 的 response.ok 校验后会正常判为失败，落到首字符。
+  const publicService = await fetchImage(`https://icons.duckduckgo.com/ip3/${host}.ico`)
+  if (publicService) return publicService
 
   return null
 }
