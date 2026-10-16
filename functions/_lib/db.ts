@@ -36,6 +36,7 @@ const SCHEMA_STATEMENTS: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      module_id INTEGER NOT NULL,
      name TEXT NOT NULL,
+     description TEXT,
      icon_url TEXT,
      url_lan TEXT,
      url_vpn TEXT,
@@ -54,13 +55,34 @@ const SCHEMA_STATEMENTS: string[] = [
    )`,
 ]
 
+/**
+ * 增量迁移：CREATE TABLE IF NOT EXISTS 只会补新建的表，
+ * 已经存在的库拿不到新增的列，所以旧库必须单独 ALTER 一次。
+ */
+const MIGRATION_STATEMENTS: string[] = ['ALTER TABLE links ADD COLUMN description TEXT']
+
 let schemaReady = false
 
 export async function ensureSchema(db: D1Database): Promise<void> {
   if (schemaReady) return
   await db.batch(SCHEMA_STATEMENTS.map((sql) => db.prepare(sql)))
+  await runMigrations(db)
   await seedDefaults(db)
   schemaReady = true
+}
+
+async function runMigrations(db: D1Database): Promise<void> {
+  for (const sql of MIGRATION_STATEMENTS) {
+    try {
+      await db.prepare(sql).run()
+    } catch (error) {
+      // 列已存在时 SQLite 会抛 duplicate column，这正是「迁移已完成」的信号，不是错误
+      const message = error instanceof Error ? error.message : String(error)
+      if (/duplicate column/i.test(message)) continue
+      console.error('[navigo] 数据库迁移失败', sql, error)
+      throw error
+    }
+  }
 }
 
 async function seedDefaults(db: D1Database): Promise<void> {

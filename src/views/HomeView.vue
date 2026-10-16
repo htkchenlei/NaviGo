@@ -250,7 +250,7 @@ async function loadDemo(): Promise<void> {
           :animation="200"
           filter=".nv-static"
           ghost-class="nv-drop-target"
-          class="grid grid-cols-1 items-start gap-lg sm:grid-cols-2 xl:grid-cols-3"
+          class="flex flex-col gap-xl"
           @end="nav.persistOrder()"
         >
           <ModuleCard
@@ -271,7 +271,7 @@ async function loadDemo(): Promise<void> {
           <button
             v-if="nav.manage && !nav.isFiltering"
             type="button"
-            class="nv-static flex min-h-[9rem] flex-col items-center justify-center gap-xs rounded-xl border-2 border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
+            class="nv-static flex h-20 w-full flex-col items-center justify-center gap-2xs rounded-lg border-2 border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
             @click="openCreateModule"
           >
             <Plus :size="22" aria-hidden="true" />

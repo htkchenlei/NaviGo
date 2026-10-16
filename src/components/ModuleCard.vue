@@ -37,12 +37,8 @@ function isVisible(link: NavLink): boolean {
 </script>
 
 <template>
-  <section
-    class="flex flex-col overflow-hidden rounded-xl bg-surface shadow-card nv-hairline transition-shadow duration-short ease-out hover:shadow-lift"
-  >
-    <div class="h-1.5 w-full shrink-0" :style="{ backgroundColor: swatch.solid }" aria-hidden="true" />
-
-    <header class="flex items-center gap-sm px-lg pt-md pb-sm">
+  <section class="flex flex-col gap-sm">
+    <header class="flex items-center gap-sm">
       <button
         v-if="manage"
         type="button"
@@ -52,6 +48,12 @@ function isVisible(link: NavLink): boolean {
       >
         <GripVertical :size="16" aria-hidden="true" />
       </button>
+
+      <span
+        class="h-5 w-1.5 shrink-0 rounded-pill"
+        :style="{ backgroundColor: swatch.solid }"
+        aria-hidden="true"
+      />
 
       <h2 class="min-w-0 truncate text-md text-ink">{{ module.name }}</h2>
       <span
@@ -112,7 +114,7 @@ function isVisible(link: NavLink): boolean {
       :animation="180"
       ghost-class="nv-drop-target"
       chosen-class="nv-dragging"
-      class="flex flex-1 flex-col gap-2xs px-sm pb-sm"
+      class="grid grid-cols-1 items-stretch gap-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
       @end="nav.persistOrder()"
     >
       <LinkItem
@@ -128,7 +130,7 @@ function isVisible(link: NavLink): boolean {
       />
       <li
         v-if="empty"
-        class="flex flex-col items-center gap-2xs rounded-md border border-dashed border-rule px-md py-lg text-center"
+        class="col-span-full flex flex-col items-center gap-2xs rounded-lg border border-dashed border-rule px-md py-lg text-center"
       >
         <p class="text-xs text-ink-3">这个模块还没有地址</p>
         <button
@@ -142,15 +144,14 @@ function isVisible(link: NavLink): boolean {
       </li>
     </VueDraggable>
 
-    <footer v-if="manage" class="px-sm pb-sm">
-      <button
-        type="button"
-        class="flex h-11 w-full items-center justify-center gap-2xs rounded-md border border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
-        @click="emit('addLink')"
-      >
-        <Plus :size="16" aria-hidden="true" />
-        添加链接
-      </button>
-    </footer>
+    <button
+      v-if="manage"
+      type="button"
+      class="flex h-11 w-full items-center justify-center gap-2xs rounded-lg border border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
+      @click="emit('addLink')"
+    >
+      <Plus :size="16" aria-hidden="true" />
+      添加链接
+    </button>
   </section>
 </template>

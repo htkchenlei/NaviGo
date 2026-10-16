@@ -6,7 +6,7 @@ export async function getNav(db: D1Database): Promise<NavPayload> {
   const [moduleResult, linkResult, settingResult] = await db.batch([
     db.prepare('SELECT id, name, color, sort_order FROM modules ORDER BY sort_order ASC, id ASC'),
     db.prepare(
-      `SELECT id, module_id, name, icon_url, url_lan, url_vpn, url_wan, sort_order
+      `SELECT id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order
        FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`,
     ),
     db.prepare('SELECT key, value FROM settings'),
@@ -39,6 +39,7 @@ function mapLink(row: LinkRow): Link {
     id: row.id,
     moduleId: row.module_id,
     name: row.name,
+    description: row.description ?? null,
     iconUrl: row.icon_url,
     urlLan: row.url_lan,
     urlVpn: row.url_vpn,
@@ -97,6 +98,7 @@ export async function deleteModule(db: D1Database, id: number): Promise<boolean>
 
 export interface LinkInput {
   name: string
+  description: string | null
   iconUrl: string | null
   urlLan: string | null
   urlVpn: string | null
@@ -111,10 +113,19 @@ export async function createLink(db: D1Database, moduleId: number, input: LinkIn
   const next = (row?.m ?? -1) + 1
   const result = await db
     .prepare(
-      `INSERT INTO links (module_id, name, icon_url, url_lan, url_vpn, url_wan, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO links (module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(moduleId, input.name, input.iconUrl, input.urlLan, input.urlVpn, input.urlWan, next)
+    .bind(
+      moduleId,
+      input.name,
+      input.description,
+      input.iconUrl,
+      input.urlLan,
+      input.urlVpn,
+      input.urlWan,
+      next,
+    )
     .run()
   return Number(result.meta.last_row_id ?? 0)
 }
@@ -128,6 +139,7 @@ export async function updateLink(
   const values: (string | number | null)[] = []
   const map: Record<string, keyof typeof patch> = {
     name: 'name',
+    description: 'description',
     icon_url: 'iconUrl',
     url_lan: 'urlLan',
     url_vpn: 'urlVpn',
@@ -215,8 +227,9 @@ export async function exportBundle(db: D1Database): Promise<ExportBundle> {
     modules: nav.modules.map((module) => ({
       name: module.name,
       color: module.color,
-      links: module.links.map(({ name, iconUrl, urlLan, urlVpn, urlWan }) => ({
+      links: module.links.map(({ name, description, iconUrl, urlLan, urlVpn, urlWan }) => ({
         name,
+        description,
         iconUrl,
         urlLan,
         urlVpn,
@@ -247,10 +260,19 @@ export async function importBundle(db: D1Database, bundle: ExportBundle): Promis
     for (const link of module.links) {
       await db
         .prepare(
-          `INSERT INTO links (module_id, name, icon_url, url_lan, url_vpn, url_wan, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO links (module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(newId, link.name, link.iconUrl ?? null, link.urlLan ?? null, link.urlVpn ?? null, link.urlWan ?? null, linkOrder)
+        .bind(
+          newId,
+          link.name,
+          link.description ?? null,
+          link.iconUrl ?? null,
+          link.urlLan ?? null,
+          link.urlVpn ?? null,
+          link.urlWan ?? null,
+          linkOrder,
+        )
         .run()
       linkOrder += 1
     }
@@ -267,24 +289,66 @@ export const DEMO_BUNDLE: ExportBundle = {
       name: '家庭服务',
       color: 'mint',
       links: [
-        { name: '群晖 NAS', iconUrl: null, urlLan: 'http://192.168.1.10:5000', urlVpn: 'http://100.66.1.10:5000', urlWan: 'https://nas.example.com' },
-        { name: '家庭影院', iconUrl: null, urlLan: 'http://192.168.1.20:8096', urlVpn: 'http://100.66.1.20:8096', urlWan: null },
+        {
+          name: '群晖 NAS',
+          description: '文件、相册与套件中心，家里走内网直连',
+          iconUrl: null,
+          urlLan: 'http://192.168.1.10:5000',
+          urlVpn: 'http://100.66.1.10:5000',
+          urlWan: 'https://nas.example.com',
+        },
+        {
+          name: '家庭影院',
+          description: '客厅电视上的影视库',
+          iconUrl: null,
+          urlLan: 'http://192.168.1.20:8096',
+          urlVpn: 'http://100.66.1.20:8096',
+          urlWan: null,
+        },
       ],
     },
     {
       name: '开发环境',
       color: 'sky',
       links: [
-        { name: '代码仓库', iconUrl: null, urlLan: null, urlVpn: null, urlWan: 'https://github.com' },
-        { name: 'CI 流水线', iconUrl: null, urlLan: 'http://192.168.1.31:8080', urlVpn: null, urlWan: null },
+        {
+          name: '代码仓库',
+          description: '代码托管与协作，只有外网地址',
+          iconUrl: null,
+          urlLan: null,
+          urlVpn: null,
+          urlWan: 'https://github.com',
+        },
+        {
+          name: 'CI 流水线',
+          description: '构建与部署，只在内网可达',
+          iconUrl: null,
+          urlLan: 'http://192.168.1.31:8080',
+          urlVpn: null,
+          urlWan: null,
+        },
       ],
     },
     {
       name: '常用工具',
       color: 'butter',
       links: [
-        { name: '在线文档', iconUrl: null, urlLan: null, urlVpn: null, urlWan: 'https://developer.mozilla.org' },
-        { name: '图标素材', iconUrl: null, urlLan: null, urlVpn: null, urlWan: 'https://www.svgrepo.com' },
+        {
+          name: '在线文档',
+          description: '查 API 与语法参考',
+          iconUrl: null,
+          urlLan: null,
+          urlVpn: null,
+          urlWan: 'https://developer.mozilla.org',
+        },
+        {
+          name: '图标素材',
+          description: '找免费矢量图标',
+          iconUrl: null,
+          urlLan: null,
+          urlVpn: null,
+          urlWan: 'https://www.svgrepo.com',
+        },
       ],
     },
   ],

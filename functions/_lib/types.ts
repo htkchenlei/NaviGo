@@ -26,6 +26,7 @@ export interface LinkRow {
   id: number
   module_id: number
   name: string
+  description: string | null
   icon_url: string | null
   url_lan: string | null
   url_vpn: string | null
@@ -44,6 +45,7 @@ export interface Link {
   id: number
   moduleId: number
   name: string
+  description: string | null
   iconUrl: string | null
   urlLan: string | null
   urlVpn: string | null

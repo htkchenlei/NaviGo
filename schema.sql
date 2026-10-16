@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   module_id INTEGER NOT NULL,
   name TEXT NOT NULL,
+  description TEXT,
   icon_url TEXT,
   url_lan TEXT,
   url_vpn TEXT,
@@ -59,6 +60,11 @@ CREATE TABLE IF NOT EXISTS icon_cache (
   status INTEGER NOT NULL,
   fetched_at INTEGER NOT NULL
 );
+
+-- ── 从 v1.0 升级上来的旧库 ────────────────────────────────────────
+-- v1.1 起 links 增加了 description 列。运行时也会自动补（见 functions/_lib/db.ts），
+-- 只有在你手动管理 schema 时才需要执行这一句；重复执行会报 duplicate column，属正常。
+-- ALTER TABLE links ADD COLUMN description TEXT;
 
 -- 站点默认设置
 INSERT OR IGNORE INTO settings (key, value) VALUES ('site_title', 'NaviGo');

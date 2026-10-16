@@ -263,6 +263,7 @@ function readLinkInput(body: Record<string, unknown>, requireName: boolean): Lin
   if (name === null) throw new HttpError('字段 name 不能为空')
   return {
     name,
+    description: optStr(body.description, 'description', 120),
     iconUrl: optUrl(body.iconUrl, 'iconUrl'),
     urlLan: optUrl(body.urlLan, 'urlLan'),
     urlVpn: optUrl(body.urlVpn, 'urlVpn'),

@@ -21,6 +21,7 @@ const emit = defineEmits<{ close: [] }>()
 
 const nav = useNavStore()
 const name = ref('')
+const description = ref('')
 const urlLan = ref('')
 const urlVpn = ref('')
 const urlWan = ref('')
@@ -36,6 +37,7 @@ const dialogTitle = computed(() => {
 
 const preview = computed<LinkPayload>(() => ({
   name: name.value.trim() || '新地址',
+  description: description.value.trim() || null,
   iconUrl: iconUrl.value.trim() || null,
   urlLan: urlLan.value.trim() || null,
   urlVpn: urlVpn.value.trim() || null,
@@ -47,6 +49,7 @@ watch(
   (open) => {
     if (!open) return
     name.value = props.link?.name ?? ''
+    description.value = props.link?.description ?? ''
     urlLan.value = props.link?.urlLan ?? ''
     urlVpn.value = props.link?.urlVpn ?? ''
     urlWan.value = props.link?.urlWan ?? ''
@@ -127,6 +130,15 @@ async function submit(): Promise<void> {
         placeholder="例如：群晖 NAS"
         :maxlength="32"
         :error="error"
+        @enter="submit"
+      />
+
+      <BaseInput
+        v-model="description"
+        label="描述（可选）"
+        placeholder="例如：文件、相册与套件中心"
+        hint="显示在名称下方；留空的话这里会显示域名"
+        :maxlength="120"
         @enter="submit"
       />
 

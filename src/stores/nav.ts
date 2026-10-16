@@ -54,6 +54,7 @@ export const useNavStore = defineStore('nav', () => {
         const hit =
           moduleMatches ||
           link.name.toLowerCase().includes(keyword) ||
+          Boolean(link.description?.toLowerCase().includes(keyword)) ||
           [link.urlWan, link.urlLan, link.urlVpn].some((url) => url?.toLowerCase().includes(keyword))
         if (hit) ids.add(link.id)
       }

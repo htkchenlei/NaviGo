@@ -8,6 +8,8 @@ export interface NavLink {
   id: number
   moduleId: number
   name: string
+  /** 一句话说明，显示在名称下方；留空时回退显示域名 */
+  description: string | null
   iconUrl: string | null
   urlLan: string | null
   urlVpn: string | null
@@ -62,6 +64,7 @@ export interface ExportBundle {
 
 export interface LinkPayload {
   name: string
+  description: string | null
   iconUrl: string | null
   urlLan: string | null
   urlVpn: string | null
