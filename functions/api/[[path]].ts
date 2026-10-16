@@ -1,0 +1,318 @@
+import {
+  HttpError,
+  assertSameOrigin,
+  fail,
+  missingDb,
+  ok,
+  optStr,
+  optUrl,
+  pickOne,
+  readJson,
+  reqId,
+  reqPassword,
+  reqStr,
+  toResponse,
+} from '../_lib/http'
+import {
+  SESSION_COOKIE,
+  checkLoginThrottle,
+  clearLoginFailures,
+  clientIp,
+  expiredSessionCookie,
+  findUserByName,
+  issueSession,
+  recordLoginFailure,
+  resolveSession,
+  revokeAllSessions,
+  revokeSession,
+  sessionCookie,
+  updatePassword,
+  verifyPassword,
+} from '../_lib/auth'
+import { countUsers, ensureSchema } from '../_lib/db'
+import { resolveIcon } from '../_lib/icon'
+import {
+  DEMO_BUNDLE,
+  applyReorder,
+  createLink,
+  createModule,
+  deleteLink,
+  deleteModule,
+  exportBundle,
+  getNav,
+  importBundle,
+  saveSettings,
+  updateLink,
+  updateModule,
+} from '../_lib/repo'
+import type { ExportBundle, LinkInput } from '../_lib/repo'
+import { COLOR_KEYS, SEARCH_ENGINE_KEYS, SITE_VERSION } from '../_lib/types'
+import type { Env } from '../_lib/types'
+
+type Ctx = EventContext<Env, string, Record<string, unknown>>
+
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+export const onRequest: PagesFunction<Env> = async (context) => {
+  const { request, env, params } = context
+  const url = new URL(request.url)
+  const segments = Array.isArray(params.path) ? (params.path as string[]) : []
+  const route = segments.join('/')
+  const method = request.method.toUpperCase()
+
+  if (!env.DB) return missingDb()
+
+  try {
+    await ensureSchema(env.DB)
+  } catch (error) {
+    console.error('[navigo] 数据库初始化失败，请确认 D1 绑定变量名为 DB', error)
+    return fail('数据库不可用，请检查 D1 绑定与迁移状态', 503, 'db_unavailable')
+  }
+
+  if (method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: { allow: 'GET,POST,PUT,DELETE,OPTIONS' } })
+  }
+
+  try {
+    if (route === 'health' && method === 'GET') return await handleHealth(env)
+    if (route === 'auth/login' && method === 'POST') return await handleLogin(env, request)
+
+    const user = await resolveSession(env.DB, request)
+    if (!user) return fail('未登录或会话已过期', 401, 'unauthorized')
+
+    if (WRITE_METHODS.has(method)) {
+      const originError = assertSameOrigin(request)
+      if (originError) return originError
+    }
+
+    if (route === 'auth/me' && method === 'GET') return await handleMe(env, user.username)
+    if (route === 'auth/logout' && method === 'POST') return await handleLogout(env, request)
+    if (route === 'auth/logout-all' && method === 'POST') {
+      await revokeAllSessions(env.DB, user.id)
+      console.log('[navigo] 已吊销全部设备的会话', user.username)
+      return ok({ revoked: true }, { 'set-cookie': expiredSessionCookie(request) })
+    }
+    if (route === 'auth/password' && method === 'POST') {
+      return await handlePasswordChange(env, request, user)
+    }
+
+    if (route === 'nav' && method === 'GET') return ok(await getNav(env.DB))
+    if (route === 'settings' && method === 'POST') return await handleSettings(env, request)
+    if (route === 'reorder' && method === 'POST') {
+      const body = await readJson(context.request)
+      const count = await applyReorder(env.DB, body as never)
+      return ok({ updated: count })
+    }
+
+    if (route === 'modules' && method === 'POST') return await handleModuleCreate(env, request)
+
+    const moduleId = matchId(route, 'modules')
+    if (moduleId !== null) {
+      if (method === 'PUT') return await handleModuleUpdate(env, request, moduleId)
+      if (method === 'DELETE') {
+        const removed = await deleteModule(env.DB, moduleId)
+        return removed ? ok({ id: moduleId }) : fail('模块不存在', 404, 'not_found')
+      }
+    }
+
+    if (route === 'links' && method === 'POST') return await handleLinkCreate(env, request)
+
+    const linkId = matchId(route, 'links')
+    if (linkId !== null) {
+      if (method === 'PUT') return await handleLinkUpdate(env, request, linkId)
+      if (method === 'DELETE') {
+        const removed = await deleteLink(env.DB, linkId)
+        return removed ? ok({ id: linkId }) : fail('链接不存在', 404, 'not_found')
+      }
+    }
+
+    if (route === 'export' && method === 'GET') return ok(await exportBundle(env.DB))
+    if (route === 'import' && method === 'POST') return await handleImport(env, request)
+    if (route === 'demo' && method === 'POST') {
+      await importBundle(env.DB, DEMO_BUNDLE)
+      return ok(await getNav(env.DB))
+    }
+
+    if (route === 'icon' && method === 'GET') return await handleIcon(env, url)
+
+    return fail(`未知接口：${method} /api/${route}`, 404, 'not_found')
+  } catch (error) {
+    return toResponse(error)
+  }
+}
+
+function matchId(route: string, prefix: string): number | null {
+  const matched = route.match(new RegExp(`^${prefix}/(\\d+)$`))
+  return matched ? Number(matched[1]) : null
+}
+
+/* ── 账号 ────────────────────────────────────────────────────────── */
+
+async function handleHealth(env: Env): Promise<Response> {
+  const users = await countUsers(env.DB)
+  return ok({
+    db: 'ok',
+    version: SITE_VERSION,
+    userCount: users,
+    commit: env.CF_PAGES_COMMIT_SHA ?? null,
+    branch: env.CF_PAGES_BRANCH ?? null,
+    siteUrl: env.CF_PAGES_URL ?? null,
+  })
+}
+
+async function handleMe(env: Env, username: string): Promise<Response> {
+  const nav = await getNav(env.DB)
+  return ok({
+    username,
+    needsPasswordChange: nav.settings.password_changed !== '1',
+  })
+}
+
+async function handleLogin(env: Env, request: Request): Promise<Response> {
+  const originError = assertSameOrigin(request)
+  if (originError) return originError
+
+  const ip = clientIp(request)
+  const throttle = await checkLoginThrottle(env.DB, ip)
+  if (throttle.blocked) {
+    return fail('登录失败次数过多，请 15 分钟后重试', 429, 'too_many_attempts')
+  }
+
+  const body = await readJson<{ username?: unknown; password?: unknown }>(request)
+  const username = reqStr(body.username, 'username', 64)
+  const password = typeof body.password === 'string' ? body.password : ''
+  if (!password) throw new HttpError('密码不能为空')
+
+  const user = await findUserByName(env.DB, username)
+  const valid = user ? await verifyPassword(password, user.password_hash) : false
+  if (!user || !valid) {
+    await recordLoginFailure(env.DB, ip)
+    return fail('账号或密码不正确', 401, 'invalid_credentials')
+  }
+
+  await clearLoginFailures(env.DB, ip)
+  const token = await issueSession(env.DB, user.id)
+  console.log('[navigo] 登录成功', username)
+  return ok({ username: user.username }, { 'set-cookie': sessionCookie(request, token) })
+}
+
+async function handleLogout(env: Env, request: Request): Promise<Response> {
+  await revokeSession(env.DB, request)
+  return ok({ ok: true }, { 'set-cookie': expiredSessionCookie(request), 'x-clear-cookie': SESSION_COOKIE })
+}
+
+async function handlePasswordChange(
+  env: Env,
+  request: Request,
+  session: { id: number; username: string },
+): Promise<Response> {
+  const body = await readJson<{ currentPassword?: unknown; newPassword?: unknown }>(request)
+  const current = reqPassword(body.currentPassword, 'currentPassword')
+  const next = reqPassword(body.newPassword, 'newPassword')
+
+  const user = await findUserByName(env.DB, session.username)
+  if (!user || !(await verifyPassword(current, user.password_hash))) {
+    return fail('当前密码不正确', 403, 'invalid_password')
+  }
+
+  await updatePassword(env.DB, session.id, next)
+  // 改密后强制所有设备重新登录，同时清掉「首次登录」提醒
+  await revokeAllSessions(env.DB, session.id)
+  await saveSettings(env.DB, { password_changed: '1' })
+  console.log('[navigo] 已更新密码并吊销全部会话', session.username)
+  return ok({ changed: true })
+}
+
+/* ── 模块与链接 ──────────────────────────────────────────────────── */
+
+async function handleModuleCreate(env: Env, request: Request): Promise<Response> {
+  const body = await readJson<{ name?: unknown; color?: unknown }>(request)
+  const name = reqStr(body.name, 'name', 32)
+  const color = pickOne(body.color, COLOR_KEYS, 'mint')
+  const id = await createModule(env.DB, name, color)
+  return ok({ id, name, color })
+}
+
+async function handleModuleUpdate(env: Env, request: Request, id: number): Promise<Response> {
+  const body = await readJson<{ name?: unknown; color?: unknown }>(request)
+  const patch: { name?: string; color?: string } = {}
+  if (body.name !== undefined) patch.name = reqStr(body.name, 'name', 32)
+  if (body.color !== undefined) patch.color = pickOne(body.color, COLOR_KEYS, 'mint')
+  const updated = await updateModule(env.DB, id, patch)
+  return updated ? ok({ id, ...patch }) : fail('模块不存在或没有变化', 404, 'not_found')
+}
+
+async function handleLinkCreate(env: Env, request: Request): Promise<Response> {
+  const body = await readJson<Record<string, unknown>>(request)
+  const moduleId = reqId(body.moduleId, 'moduleId')
+  const input = readLinkInput(body, true)
+  const id = await createLink(env.DB, moduleId, input)
+  return ok({ id, moduleId, ...input })
+}
+
+async function handleLinkUpdate(env: Env, request: Request, id: number): Promise<Response> {
+  const body = await readJson<Record<string, unknown>>(request)
+  const patch = readLinkInput(body, false)
+  const updated = await updateLink(env.DB, id, patch)
+  return updated ? ok({ id, ...patch }) : fail('链接不存在', 404, 'not_found')
+}
+
+/** 新建时 name 必填；编辑时只校验传了的字段，未传的保持原值 */
+function readLinkInput(body: Record<string, unknown>, requireName: boolean): LinkInput {
+  const name = requireName ? reqStr(body.name, 'name', 32) : optStr(body.name, 'name', 32)
+  if (name === null) throw new HttpError('字段 name 不能为空')
+  return {
+    name,
+    iconUrl: optUrl(body.iconUrl, 'iconUrl'),
+    urlLan: optUrl(body.urlLan, 'urlLan'),
+    urlVpn: optUrl(body.urlVpn, 'urlVpn'),
+    urlWan: optUrl(body.urlWan, 'urlWan'),
+  }
+}
+
+async function handleSettings(env: Env, request: Request): Promise<Response> {
+  const body = await readJson<Record<string, unknown>>(request)
+  const values: Record<string, string> = {}
+  if (body.site_title !== undefined) values.site_title = reqStr(body.site_title, 'site_title', 40)
+  if (body.site_subtitle !== undefined) {
+    values.site_subtitle = optStr(body.site_subtitle, 'site_subtitle', 80) ?? ''
+  }
+  if (body.fallback_wan !== undefined) values.fallback_wan = body.fallback_wan ? '1' : '0'
+  if (body.search_engine !== undefined) {
+    values.search_engine = pickOne(body.search_engine, SEARCH_ENGINE_KEYS, 'google')
+  }
+  await saveSettings(env.DB, values)
+  return ok(values)
+}
+
+async function handleImport(env: Env, request: Request): Promise<Response> {
+  const body = await readJson<ExportBundle>(request)
+  if (!body || !Array.isArray(body.modules)) {
+    throw new HttpError('导入文件格式不正确，应为 NaviGo 导出的 JSON')
+  }
+  if (body.modules.length > 200) throw new HttpError('模块数量过多（上限 200）')
+  await importBundle(env.DB, body)
+  return ok(await getNav(env.DB))
+}
+
+/* ── 图标 ────────────────────────────────────────────────────────── */
+
+async function handleIcon(env: Env, url: URL): Promise<Response> {
+  const domain = url.searchParams.get('domain') || ''
+  const payload = await resolveIcon(env, domain)
+  if (!payload) {
+    // 返回 404 而不是空图，前端 <img> 的 onerror 才能触发首字符兜底
+    return new Response(null, { status: 404, headers: { 'cache-control': 'no-store' } })
+  }
+  return new Response(payload.bytes, {
+    status: 200,
+    headers: {
+      'content-type': payload.contentType,
+      'cache-control': 'public, max-age=2592000, immutable',
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; sandbox",
+      'x-icon-cache': payload.cacheState,
+      'x-icon-source': payload.resolvedFrom,
+    },
+  })
+}

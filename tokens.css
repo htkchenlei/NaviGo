@@ -1,0 +1,140 @@
+/* Hallmark · component: app-shell · genre: playful · theme: custom
+ * vibe: "macaron candy box — soft, airy, edible"
+ * paper oklch(98.5% 0.006 300) · accent oklch(52% 0.19 286) · display Bricolage Grotesque · body Plus Jakarta Sans
+ * axes: light paper band / rounded-sans display / cool-violet accent
+ * states: default · hover · focus-visible · active · disabled · loading · error · success
+ *
+ * 本文件是 NaviGo 的唯一设计令牌来源。任何颜色 / 字体 / 间距 / 时长都必须引用这里，
+ * 不允许在组件里内联 hex、oklch() 或裸 font-family。
+ */
+
+:root {
+  /* ── Paper & surfaces ─────────────────────────────────────────────
+     纸面带极轻的紫调（anchor hue 300），绝不使用纯白作为基础面。 */
+  --color-paper: oklch(98.5% 0.006 300);
+  --color-surface: oklch(99.4% 0.003 300);
+  --color-surface-2: oklch(97% 0.008 265);
+  --color-surface-3: oklch(95% 0.014 290);
+
+  /* ── Rules & borders ────────────────────────────────────────────── */
+  --color-rule: oklch(91% 0.015 290);
+  --color-rule-strong: oklch(85% 0.022 290);
+
+  /* ── Ink（正文色，统一带紫调，避免中性灰发冷）
+     三档明度 28 / 42 / 54 都在纸面上满足 WCAG AA 4.5:1，最浅一档也不会失去可读性 ── */
+  --color-ink: oklch(28% 0.045 285);
+  --color-ink-2: oklch(42% 0.034 285);
+  --color-ink-3: oklch(54% 0.026 285);
+
+  /* ── Accent（唯一强调色，占据视口面积 < 5%）
+     -strong 专供实心按钮底色，保证其上的浅色文字对比度 > 7:1 ───────── */
+  --color-accent: oklch(52% 0.19 286);
+  --color-accent-strong: oklch(45% 0.19 286);
+  --color-accent-2: oklch(63% 0.17 285);
+  --color-accent-3: oklch(81% 0.09 290);
+  --color-accent-wash: oklch(96% 0.021 288);
+  --color-accent-ink: oklch(99% 0.004 290);
+
+  /* ── Macaron 识别色板（每模块一种，仅用于色条与图标头像） ───────── */
+  --color-macaron-mint: oklch(79% 0.13 165);
+  --color-macaron-mint-soft: oklch(94% 0.05 165);
+  --color-macaron-sky: oklch(76% 0.1 240);
+  --color-macaron-sky-soft: oklch(94.5% 0.04 240);
+  --color-macaron-coral: oklch(72% 0.15 15);
+  --color-macaron-coral-soft: oklch(94.5% 0.045 15);
+  --color-macaron-butter: oklch(85% 0.115 88);
+  --color-macaron-butter-soft: oklch(96.5% 0.045 88);
+  --color-macaron-lilac: oklch(72% 0.14 305);
+  --color-macaron-lilac-soft: oklch(94.5% 0.045 305);
+  --color-macaron-peach: oklch(83% 0.1 55);
+  --color-macaron-peach-soft: oklch(95.5% 0.04 55);
+  --color-macaron-rose: oklch(82% 0.09 355);
+  --color-macaron-rose-soft: oklch(95.5% 0.04 355);
+  --color-macaron-teal: oklch(75% 0.1 200);
+  --color-macaron-teal-soft: oklch(94.5% 0.04 200);
+
+  /* ── Functional（-soft 作浅底，-strong 作其上的文字色，成对使用保证对比度） ── */
+  --color-success: oklch(64% 0.13 160);
+  --color-success-strong: oklch(48% 0.13 160);
+  --color-success-soft: oklch(95% 0.045 160);
+  --color-warning: oklch(80% 0.14 78);
+  --color-warning-strong: oklch(50% 0.13 75);
+  --color-warning-soft: oklch(96% 0.05 75);
+  --color-danger: oklch(66% 0.18 22);
+  --color-danger-strong: oklch(50% 0.19 22);
+  --color-danger-soft: oklch(95.5% 0.04 20);
+
+  /* ── Typography（2+1：显示 / 正文 / 唯一 outlier = 地址摘要） ────── */
+  --font-display: 'Bricolage Grotesque', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* 1.25 比例音阶，16px 基准 */
+  --text-2xs: 0.64rem;
+  --text-xs: 0.8rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+  --text-2xl: 2.441rem;
+  --text-display: clamp(1.75rem, 2.6vw + 1rem, 2.75rem);
+  --text-display-s: clamp(1.5rem, 1.6vw + 1rem, 2rem);
+
+  --leading-tight: 1.12;
+  --leading-snug: 1.3;
+  --leading-normal: 1.55;
+
+  --tracking-display: -0.028em;
+  --tracking-label: 0.09em;
+
+  /* ── Spacing（4pt 基准，九级，按角色命名） ──────────────────────── */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+
+  /* ── Radius（圆润但不失结构） ───────────────────────────────────── */
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.125rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-pill: 999px;
+
+  /* ── Depth（单层阴影，绝不叠加；柔和投影而非发光） ──────────────── */
+  --shadow-whisper: 0 1px 2px oklch(30% 0.03 285 / 0.06);
+  --shadow-card: 0 12px 28px -20px oklch(32% 0.06 285 / 0.35);
+  --shadow-lift: 0 20px 40px -22px oklch(32% 0.08 285 / 0.45);
+  --shadow-modal: 0 32px 80px -32px oklch(28% 0.08 285 / 0.5);
+  --shadow-inset-hairline: inset 0 0 0 1px oklch(30% 0.02 285 / 0.06);
+
+  /* ── Motion（三条缓动 + 三档时长，出口为入口的 75%） ────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  /* ── Z 轴（六级，具名，禁止随手写数字） ─────────────────────────── */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  --shell-max: 1280px;
+  --header-h: 4.5rem;
+}

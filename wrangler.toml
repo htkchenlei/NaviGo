@@ -1,0 +1,17 @@
+# Cloudflare Pages 配置。
+# 部署到 Cloudflare 时，请把下面 database_id 换成你自己创建的 D1 数据库 ID
+# （Dashboard → 存储和数据库 Storage & Databases → D1 SQL database → 选中库 → 复制 Database ID），
+# 或者直接在 Pages 项目的 Settings → Functions → D1 database bindings 里图形化绑定，变量名必须是 DB。
+
+name = "navigo"
+compatibility_date = "2026-08-01"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "navigo-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# 可选：覆盖前台默认标题（也可以在后台设置里改，后台的优先级更高）
+SITE_TITLE = "NaviGo"
