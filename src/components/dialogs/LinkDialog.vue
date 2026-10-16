@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { Globe, House, Router } from 'lucide-vue-next'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
+import UrlInput from '@/components/ui/UrlInput.vue'
 import LinkIcon from '@/components/LinkIcon.vue'
 import { useNavStore } from '@/stores/nav'
 import { colorForName } from '@/utils/palette'
+import { joinUrl, parseStoredUrl, splitProtocol, validateHost } from '@/utils/urlProtocol'
+import type { Protocol } from '@/utils/urlProtocol'
 import type { LinkPayload, NavLink } from '@/api/types'
 
 const props = defineProps<{
@@ -22,12 +25,24 @@ const emit = defineEmits<{ close: [] }>()
 const nav = useNavStore()
 const name = ref('')
 const description = ref('')
-const urlLan = ref('')
-const urlVpn = ref('')
-const urlWan = ref('')
 const iconUrl = ref('')
-const error = ref('')
+const nameError = ref('')
+const formError = ref('')
 const submitting = ref(false)
+
+/** 每种模式拆成「协议 + 主机」两段，主机为空表示不填这个模式 */
+interface AddressState {
+  protocol: Protocol
+  host: string
+}
+
+type AddressKey = 'lan' | 'vpn' | 'wan'
+
+/** 内网 / VPN 的私有服务绝大多数是明文 http，外网域名则默认 https */
+const lan = reactive<AddressState>({ protocol: 'http', host: '' })
+const vpn = reactive<AddressState>({ protocol: 'http', host: '' })
+const wan = reactive<AddressState>({ protocol: 'https', host: '' })
+const hostErrors = reactive<Record<AddressKey, string>>({ lan: '', vpn: '', wan: '' })
 
 const editing = computed(() => Boolean(props.link))
 const dialogTitle = computed(() => {
@@ -35,14 +50,41 @@ const dialogTitle = computed(() => {
   return props.moduleName ? `添加到「${props.moduleName}」` : '添加地址'
 })
 
-const preview = computed<LinkPayload>(() => ({
+const payload = computed<LinkPayload>(() => ({
   name: name.value.trim() || '新地址',
   description: description.value.trim() || null,
   iconUrl: iconUrl.value.trim() || null,
-  urlLan: urlLan.value.trim() || null,
-  urlVpn: urlVpn.value.trim() || null,
-  urlWan: urlWan.value.trim() || null,
+  urlLan: joinUrl(lan.protocol, lan.host),
+  urlVpn: joinUrl(vpn.protocol, vpn.host),
+  urlWan: joinUrl(wan.protocol, wan.host),
 }))
+
+/**
+ * 输入框只绑定主机段，但如果用户直接把完整地址粘进去（https://a.b），
+ * 这里会把协议头吸到左侧下拉框，否则会拼出 http://https://a.b 这种坏地址。
+ */
+function hostBinding(state: AddressState) {
+  return computed<string>({
+    get: () => state.host,
+    set: (value: string) => {
+      const parsed = splitProtocol(value, state.protocol)
+      state.protocol = parsed.protocol
+      state.host = parsed.host
+    },
+  })
+}
+
+const lanHost = hostBinding(lan)
+const vpnHost = hostBinding(vpn)
+const wanHost = hostBinding(wan)
+
+function clearErrors(): void {
+  nameError.value = ''
+  formError.value = ''
+  hostErrors.lan = ''
+  hostErrors.vpn = ''
+  hostErrors.wan = ''
+}
 
 watch(
   () => props.open,
@@ -50,51 +92,56 @@ watch(
     if (!open) return
     name.value = props.link?.name ?? ''
     description.value = props.link?.description ?? ''
-    urlLan.value = props.link?.urlLan ?? ''
-    urlVpn.value = props.link?.urlVpn ?? ''
-    urlWan.value = props.link?.urlWan ?? ''
+    Object.assign(lan, parseStoredUrl(props.link?.urlLan ?? null, 'http'))
+    Object.assign(vpn, parseStoredUrl(props.link?.urlVpn ?? null, 'http'))
+    Object.assign(wan, parseStoredUrl(props.link?.urlWan ?? null, 'https'))
     iconUrl.value = props.link?.iconUrl ?? ''
-    error.value = ''
+    clearErrors()
     submitting.value = false
   },
 )
 
-function validateUrl(value: string, label: string): string | null {
+/** 自定义图标不走下拉框，仍然要求填完整地址 */
+function validateIconUrl(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
-  if (!/^https?:\/\//i.test(trimmed)) return `${label}必须以 http:// 或 https:// 开头`
+  if (!/^https?:\/\//i.test(trimmed)) return '自定义图标必须以 http:// 或 https:// 开头'
   return null
 }
 
 async function submit(): Promise<void> {
+  clearErrors()
+
   const trimmed = name.value.trim()
   if (!trimmed) {
-    error.value = '请填写地址名称'
+    nameError.value = '请填写地址名称'
     return
   }
-  const problems = [
-    validateUrl(urlWan.value, '外网地址'),
-    validateUrl(urlLan.value, '内网地址'),
-    validateUrl(urlVpn.value, 'VPN 地址'),
-    validateUrl(iconUrl.value, '自定义图标'),
-  ].filter(Boolean) as string[]
-  if (problems.length > 0) {
-    error.value = problems[0]
+
+  hostErrors.lan = validateHost(lan.host, '内网地址') ?? ''
+  hostErrors.vpn = validateHost(vpn.host, 'VPN 地址') ?? ''
+  hostErrors.wan = validateHost(wan.host, '外网地址') ?? ''
+  if (hostErrors.lan || hostErrors.vpn || hostErrors.wan) return
+
+  const iconProblem = validateIconUrl(iconUrl.value)
+  if (iconProblem) {
+    formError.value = iconProblem
     return
   }
-  if (!preview.value.urlLan && !preview.value.urlVpn && !preview.value.urlWan) {
-    error.value = '至少填写一个地址，否则这个条目无法点击'
+
+  if (!payload.value.urlLan && !payload.value.urlVpn && !payload.value.urlWan) {
+    formError.value = '至少填写一个地址，否则这个条目无法点击'
     return
   }
 
   submitting.value = true
   const ok = props.link
-    ? await nav.editLink(props.link.id, { ...preview.value, name: trimmed })
-    : await nav.addLink(props.moduleId, { ...preview.value, name: trimmed })
+    ? await nav.editLink(props.link.id, { ...payload.value, name: trimmed })
+    : await nav.addLink(props.moduleId, { ...payload.value, name: trimmed })
   submitting.value = false
 
   if (!ok) {
-    error.value = '保存失败，请稍后重试'
+    formError.value = '保存失败，请稍后重试'
     return
   }
   emit('close')
@@ -105,19 +152,19 @@ async function submit(): Promise<void> {
   <BaseDialog
     :open="open"
     :title="dialogTitle"
-    description="三种模式各填一份地址：在家里走内网，在外走 VPN 或公网。留空的模式会按设置回退到外网地址。"
+    description="三种模式各填一份地址：在家里走内网，在外走 VPN 或公网。地址只填主机和端口，协议用左侧下拉框选；留空的模式会按设置回退到外网地址。"
     @close="emit('close')"
   >
     <form class="flex flex-col gap-lg" @submit.prevent="submit">
       <div class="flex items-center gap-md rounded-lg bg-surface-2 p-md">
         <LinkIcon
-          :name="preview.name"
+          :name="payload.name"
           :sources="[]"
-          :color-key="colorForName(preview.name)"
+          :color-key="colorForName(payload.name)"
           :size="46"
         />
         <div class="flex min-w-0 flex-col gap-[2px]">
-          <p class="truncate text-sm font-semibold text-ink">{{ preview.name }}</p>
+          <p class="truncate text-sm font-semibold text-ink">{{ payload.name }}</p>
           <p class="text-xs text-ink-3">
             抓不到目标图标时会用名称首字生成这个彩色标识
           </p>
@@ -129,7 +176,7 @@ async function submit(): Promise<void> {
         label="名称"
         placeholder="例如：群晖 NAS"
         :maxlength="32"
-        :error="error"
+        :error="nameError"
         @enter="submit"
       />
 
@@ -143,15 +190,41 @@ async function submit(): Promise<void> {
       />
 
       <div class="flex flex-col gap-md">
-        <BaseInput v-model="urlLan" label="内网地址（192.168.x.x）" placeholder="http://192.168.1.10:5000">
+        <UrlInput
+          v-model="lanHost"
+          :protocol="lan.protocol"
+          label="内网地址（192.168.x.x）"
+          placeholder="192.168.1.10:5000"
+          :error="hostErrors.lan"
+          @update:protocol="(value) => (lan.protocol = value)"
+          @enter="submit"
+        >
           <template #prefix><House :size="16" /></template>
-        </BaseInput>
-        <BaseInput v-model="urlVpn" label="VPN 地址（100.66.x.x）" placeholder="http://100.66.1.10:5000">
+        </UrlInput>
+
+        <UrlInput
+          v-model="vpnHost"
+          :protocol="vpn.protocol"
+          label="VPN 地址（100.66.x.x）"
+          placeholder="100.66.1.10:5000"
+          :error="hostErrors.vpn"
+          @update:protocol="(value) => (vpn.protocol = value)"
+          @enter="submit"
+        >
           <template #prefix><Router :size="16" /></template>
-        </BaseInput>
-        <BaseInput v-model="urlWan" label="外网地址" placeholder="https://nas.example.com">
+        </UrlInput>
+
+        <UrlInput
+          v-model="wanHost"
+          :protocol="wan.protocol"
+          label="外网地址"
+          placeholder="nas.example.com"
+          :error="hostErrors.wan"
+          @update:protocol="(value) => (wan.protocol = value)"
+          @enter="submit"
+        >
           <template #prefix><Globe :size="16" /></template>
-        </BaseInput>
+        </UrlInput>
       </div>
 
       <BaseInput
@@ -160,6 +233,14 @@ async function submit(): Promise<void> {
         placeholder="https://example.com/logo.png"
         hint="填了就用它，不再自动抓取"
       />
+
+      <p
+        v-if="formError"
+        class="flex items-center gap-2xs rounded-md bg-danger-soft px-sm py-xs text-sm text-danger-strong"
+        role="alert"
+      >
+        {{ formError }}
+      </p>
     </form>
 
     <template #footer>

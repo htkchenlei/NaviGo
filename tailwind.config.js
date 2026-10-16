@@ -121,6 +121,7 @@ export default {
         dropdown: 'var(--z-dropdown)',
         sticky: 'var(--z-sticky)',
         modal: 'var(--z-modal)',
+        popover: 'var(--z-popover)',
         toast: 'var(--z-toast)',
         tooltip: 'var(--z-tooltip)',
       },
