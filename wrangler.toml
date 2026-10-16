@@ -10,7 +10,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "navigo-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "44b301d2-e076-4b4c-ad14-60a5897de270"
 
 [vars]
 # 可选：覆盖前台默认标题（也可以在后台设置里改，后台的优先级更高）
