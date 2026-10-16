@@ -41,6 +41,43 @@ export function isPrivateHost(host: string): boolean {
   return false
 }
 
+export interface IconSite {
+  label: string
+  href: string
+  /** 该站点给出的直链长什么样，鼠标悬停在按钮上能看到 */
+  sample: string
+  note: string
+}
+
+/**
+ * 自定义图标去哪里找。
+ * 只收录「页面上能直接复制到可外链图片地址」的站点 —— 自定义图标是直接塞进 <img src> 的，
+ * 不能外链的地址贴进来只会显示成空白。三个直链格式都实测返回 image/svg+xml。
+ */
+export const ICON_SITES: IconSite[] = [
+  {
+    label: 'Simple Icons',
+    href: 'https://simpleicons.org/',
+    sample: 'https://cdn.simpleicons.org/synology',
+    note: '品牌与应用 logo，直链最短',
+  },
+  {
+    label: 'Iconify',
+    href: 'https://icon-sets.iconify.design/',
+    sample: 'https://api.iconify.design/mdi/home.svg',
+    note: '150+ 图标集、20 万+ 图标',
+  },
+  {
+    label: 'Font Awesome',
+    href: 'https://fontawesome.com/search?o=r&m=free',
+    sample: 'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6/svgs/brands/github.svg',
+    note: '经典图标库，走 jsDelivr 直链',
+  },
+]
+
+/** 示例直链：直接放在提示语里给用户抄格式，点开就能看到它长什么样 */
+export const ICON_SAMPLE_URL = 'https://cdn.simpleicons.org/synology'
+
 export function resolveUrlForMode(link: NavLink, mode: AccessMode): string | null {
   const map: Record<AccessMode, string | null> = {
     lan: link.urlLan,

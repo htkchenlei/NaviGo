@@ -172,6 +172,9 @@ npm run cf:dev           # http://127.0.0.1:8788
 所以这里做了一条三层降级链：
 
 1. **手动指定**：在链接里填了「自定义图标」就直接用它，优先级最高。
+   链接表单里有三个图标站入口（Simple Icons / Iconify / Font Awesome），都可以在页面上直接复制到
+   可外链的图片地址。注意这里填的地址会被原样塞进 `<img src>`，必须是**浏览器直接打开就能看到图**
+   的直链，图标站的页面地址或下载链接都不行。
 2. **服务端代理**：`GET /api/icon?domain=example.com`，先试 `/favicon.ico`，
    再解析首页 HTML 里的 `<link rel="icon">`，最后试 `/apple-touch-icon.png`。
    命中后写进 Cache API 与 D1 的 `icon_cache`（正缓存 7 天、负缓存 30 分钟），

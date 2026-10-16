@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Globe, House, Router } from 'lucide-vue-next'
+import { ExternalLink, Globe, House, Router } from 'lucide-vue-next'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
@@ -8,6 +8,7 @@ import UrlInput from '@/components/ui/UrlInput.vue'
 import LinkIcon from '@/components/LinkIcon.vue'
 import { useNavStore } from '@/stores/nav'
 import { colorForName } from '@/utils/palette'
+import { ICON_SAMPLE_URL, ICON_SITES } from '@/utils/icon'
 import { joinUrl, parseStoredUrl, splitProtocol, validateHost } from '@/utils/urlProtocol'
 import type { Protocol } from '@/utils/urlProtocol'
 import type { LinkPayload, NavLink } from '@/api/types'
@@ -227,12 +228,42 @@ async function submit(): Promise<void> {
         </UrlInput>
       </div>
 
-      <BaseInput
-        v-model="iconUrl"
-        label="自定义图标（可选）"
-        placeholder="https://example.com/logo.png"
-        hint="填了就用它，不再自动抓取"
-      />
+      <div class="flex flex-col gap-2xs">
+        <BaseInput
+          v-model="iconUrl"
+          label="自定义图标（可选）"
+          placeholder="https://cdn.simpleicons.org/synology"
+          hint="填了就用它，不再自动抓取"
+        />
+
+        <div class="flex flex-wrap items-center gap-2xs">
+          <span class="text-xs text-ink-3">去这里找图标：</span>
+          <a
+            v-for="site in ICON_SITES"
+            :key="site.href"
+            :href="site.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="`${site.note}；直链形如 ${site.sample}`"
+            class="flex items-center gap-2xs rounded-pill bg-surface-2 px-sm py-[5px] text-xs font-semibold text-ink-2 ring-1 ring-inset ring-rule transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-accent-strong"
+          >
+            {{ site.label }}
+            <ExternalLink :size="11" aria-hidden="true" />
+          </a>
+        </div>
+
+        <p class="text-xs text-ink-3">
+          复制的地址要能直接打开看到图，形如
+          <a
+            :href="ICON_SAMPLE_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-mono text-accent-strong transition-colors duration-micro ease-out hover:text-accent"
+          >
+            {{ ICON_SAMPLE_URL }}
+          </a>
+        </p>
+      </div>
 
       <p
         v-if="formError"
