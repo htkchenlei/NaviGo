@@ -14,8 +14,13 @@ const props = withDefaults(
     hint?: string
     error?: string
     maxlength?: number
+    /**
+     * 「待续写」的预填文本：输入框里还是这段原封未动的值时，点进来光标直接落到行尾，
+     * 用户接着敲端口就行，不用先把光标拨过去；内容一旦改过，恢复浏览器默认的点击定位。
+     */
+    prefill?: string
   }>(),
-  { maxlength: 2048 },
+  { maxlength: 2048, prefill: '' },
 )
 
 const emit = defineEmits<{
@@ -39,6 +44,33 @@ const groupClasses = computed(() => [
     ? 'ring-2 ring-danger'
     : 'ring-rule hover:ring-rule-strong focus-within:ring-2 focus-within:ring-accent',
 ])
+
+/** 预填文本还留着，说明用户是想接着往后写，不是来改这段的 */
+function isPristinePrefill(input: HTMLInputElement): boolean {
+  return Boolean(props.prefill) && input.value === props.prefill
+}
+
+function caretToEnd(input: HTMLInputElement): void {
+  const end = input.value.length
+  input.setSelectionRange(end, end)
+}
+
+/** 键盘 Tab 进来时也走同一条规则，别出现「点进来在行尾、Tab 进来却选中全部」 */
+function handleFocus(event: FocusEvent): void {
+  const input = event.target as HTMLInputElement
+  if (isPristinePrefill(input)) caretToEnd(input)
+}
+
+/**
+ * 鼠标点击要等 mouseup：浏览器会按点击落点摆好光标，这个默认动作发生在 mouseup 之前，
+ * 所以只能在 mouseup 里覆盖它。拖选时选区不是收拢的，直接放行，不打断用户自己选。
+ */
+function handleMouseUp(event: MouseEvent): void {
+  const input = event.target as HTMLInputElement
+  if (!isPristinePrefill(input)) return
+  if (input.selectionStart !== input.selectionEnd) return
+  caretToEnd(input)
+}
 </script>
 
 <template>
@@ -78,6 +110,8 @@ const groupClasses = computed(() => [
         :aria-describedby="describedBy"
         class="min-w-0 flex-1 bg-transparent px-sm text-base text-ink placeholder:text-ink-3 focus:outline-none"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+        @focus="handleFocus"
+        @mouseup="handleMouseUp"
         @keyup.enter="emit('enter')"
       />
     </div>

@@ -45,6 +45,23 @@ const vpn = reactive<AddressState>({ protocol: 'http', host: '' })
 const wan = reactive<AddressState>({ protocol: 'https', host: '' })
 const hostErrors = reactive<Record<AddressKey, string>>({ lan: '', vpn: '', wan: '' })
 
+const addressOf: Record<AddressKey, AddressState> = { lan, vpn, wan }
+
+/**
+ * 新建时预填「主机 + 冒号」，光标落在冒号后面，用户接着敲端口就行。
+ * 外网地址形态太杂（域名 / 公网 IP / 各种端口），不预填，留空。
+ */
+const PREFILL: Record<AddressKey, string> = { lan: '192.168.1.7:', vpn: '100.66.1.1:', wan: '' }
+
+/**
+ * 预填值原封未动一律按「这个模式没填」处理：否则每次新建都会莫名其妙多出一个
+ * 指向 192.168.1.7 的内网地址，「至少填写一个地址」的校验也会被默认值蒙混过去。
+ */
+function effectiveHost(key: AddressKey): string {
+  const trimmed = addressOf[key].host.trim()
+  return trimmed && trimmed !== PREFILL[key] ? trimmed : ''
+}
+
 const editing = computed(() => Boolean(props.link))
 const dialogTitle = computed(() => {
   if (props.link) return '编辑地址'
@@ -55,9 +72,9 @@ const payload = computed<LinkPayload>(() => ({
   name: name.value.trim() || '新地址',
   description: description.value.trim() || null,
   iconUrl: iconUrl.value.trim() || null,
-  urlLan: joinUrl(lan.protocol, lan.host),
-  urlVpn: joinUrl(vpn.protocol, vpn.host),
-  urlWan: joinUrl(wan.protocol, wan.host),
+  urlLan: joinUrl(lan.protocol, effectiveHost('lan')),
+  urlVpn: joinUrl(vpn.protocol, effectiveHost('vpn')),
+  urlWan: joinUrl(wan.protocol, effectiveHost('wan')),
 }))
 
 /**
@@ -96,6 +113,11 @@ watch(
     Object.assign(lan, parseStoredUrl(props.link?.urlLan ?? null, 'http'))
     Object.assign(vpn, parseStoredUrl(props.link?.urlVpn ?? null, 'http'))
     Object.assign(wan, parseStoredUrl(props.link?.urlWan ?? null, 'https'))
+    if (!props.link) {
+      // 只有新建才预填：编辑时要显示库里真实存着的值，不能让默认值看起来像已保存的内容
+      lan.host = PREFILL.lan
+      vpn.host = PREFILL.vpn
+    }
     iconUrl.value = props.link?.iconUrl ?? ''
     clearErrors()
     submitting.value = false
@@ -196,6 +218,7 @@ async function submit(): Promise<void> {
           :protocol="lan.protocol"
           label="内网地址（192.168.x.x）"
           placeholder="192.168.1.10:5000"
+          :prefill="PREFILL.lan"
           :error="hostErrors.lan"
           @update:protocol="(value) => (lan.protocol = value)"
           @enter="submit"
@@ -208,6 +231,7 @@ async function submit(): Promise<void> {
           :protocol="vpn.protocol"
           label="VPN 地址（100.66.x.x）"
           placeholder="100.66.1.10:5000"
+          :prefill="PREFILL.vpn"
           :error="hostErrors.vpn"
           @update:protocol="(value) => (vpn.protocol = value)"
           @enter="submit"
