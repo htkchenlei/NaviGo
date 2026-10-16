@@ -128,30 +128,21 @@ function isVisible(link: NavLink): boolean {
         @remove="emit('removeLink', link)"
         @move="(step: number) => nav.nudgeLink(link.id, step)"
       />
-      <li
-        v-if="empty"
-        class="col-span-full flex flex-col items-center gap-2xs rounded-lg border border-dashed border-rule px-md py-lg text-center"
-      >
-        <p class="text-xs text-ink-3">这个模块还没有地址</p>
+      <!--
+        虚拟的「添加」卡片，固定占在网格最后一位，代替原来模块底部那条整行按钮。
+        它没有 .nv-grip，所以 handle 限定下拖不动；搜索过滤时隐藏，避免和筛选结果混在一起。
+      -->
+      <li v-if="manage && !nav.isFiltering" class="flex">
         <button
-          v-if="manage"
           type="button"
-          class="text-xs font-semibold text-accent-strong transition-colors duration-micro ease-out hover:text-accent"
+          class="flex h-full min-h-[5rem] w-full flex-col items-center justify-center gap-2xs rounded-lg border-2 border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
+          :aria-label="`向「${module.name}」添加链接`"
           @click="emit('addLink')"
         >
-          添加第一个地址
+          <Plus :size="18" aria-hidden="true" />
+          {{ empty ? '添加第一个链接' : '添加链接' }}
         </button>
       </li>
     </VueDraggable>
-
-    <button
-      v-if="manage"
-      type="button"
-      class="flex h-11 w-full items-center justify-center gap-2xs rounded-lg border border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
-      @click="emit('addLink')"
-    >
-      <Plus :size="16" aria-hidden="true" />
-      添加链接
-    </button>
   </section>
 </template>

@@ -248,7 +248,6 @@ async function loadDemo(): Promise<void> {
           handle=".nv-module-grip"
           :disabled="!nav.manage || nav.isFiltering"
           :animation="200"
-          filter=".nv-static"
           ghost-class="nv-drop-target"
           class="flex flex-col gap-xl"
           @end="nav.persistOrder()"
@@ -267,16 +266,6 @@ async function loadDemo(): Promise<void> {
             @edit-link="(link: NavLink) => openEditLink(module, link)"
             @remove-link="askRemoveLink"
           />
-
-          <button
-            v-if="nav.manage && !nav.isFiltering"
-            type="button"
-            class="nv-static flex h-20 w-full flex-col items-center justify-center gap-2xs rounded-lg border-2 border-dashed border-rule-strong text-sm font-semibold text-ink-2 transition-colors duration-short ease-out hover:border-accent-3 hover:bg-accent-wash hover:text-accent-strong"
-            @click="openCreateModule"
-          >
-            <Plus :size="22" aria-hidden="true" />
-            新增模块
-          </button>
         </VueDraggable>
 
         <footer class="pt-md text-center text-xs text-ink-3">
