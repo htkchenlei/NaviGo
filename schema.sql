@@ -61,13 +61,15 @@ CREATE TABLE IF NOT EXISTS icon_cache (
   fetched_at INTEGER NOT NULL
 );
 
--- 脚本用的 Bearer 令牌：只存 SHA-256 哈希，明文只在创建响应里出现一次。
--- prefix 是明文前 8 位（nvk_ab12cd34），仅用于在后台列表里辨认是哪一枚。
+-- 脚本用的 Bearer 令牌。token_hash 负责查表匹配，token_plain 让后台可以随时掩码查看、
+-- 复制；因为默认只活 15 分钟且过期即删，这里接受了「明文可回读」这个取舍。
+-- prefix 是明文前 8 位（nvk_ab12cd34），仅用于在列表里辨认是哪一枚。
 CREATE TABLE IF NOT EXISTS api_tokens (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   prefix TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
+  token_plain TEXT,
   user_id INTEGER NOT NULL,
   scopes TEXT NOT NULL DEFAULT 'read,write',
   created_at INTEGER NOT NULL,

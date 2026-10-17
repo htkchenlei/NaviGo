@@ -155,8 +155,8 @@ const GROUPS: Group[] = [
       {
         method: 'POST',
         path: '/api/tokens',
-        desc: '签发令牌。响应里的 token 是明文，只出现这一次；scopes 可传 ["read"] 或 ["read","write"]',
-        body: '{"name":"快捷指令","scopes":["read"],"expiresInDays":30}',
+        desc: '签发令牌。默认 15 分钟有效，过期即删行；expiresInMinutes 可改（传 null 永不过期），scopes 可传 ["read"] 或 ["read","write"]',
+        body: '{"name":"快捷指令","scopes":["read"],"expiresInMinutes":15}',
         session: true,
       },
       {

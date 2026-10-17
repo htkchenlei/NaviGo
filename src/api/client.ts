@@ -100,8 +100,8 @@ export const api = {
   saveSettings: (values: Record<string, string>) => post<Record<string, string>>('settings', values),
 
   listTokens: () => request<{ tokens: ApiTokenMeta[] }>('tokens'),
-  /** 返回体里的 token 是明文，只此一次，之后再也取不回来 */
-  createToken: (input: { name: string; scopes: TokenScope[]; expiresInDays: number | null }) =>
+  /** 不传 expiresInMinutes 就等于默认 15 分钟；传 null 表示永不过期 */
+  createToken: (input: { name: string; scopes: TokenScope[]; expiresInMinutes: number | null }) =>
     post<IssuedApiToken>('tokens', input),
   revokeToken: (id: number) => request<unknown>(`tokens/${id}`, { method: 'DELETE' }),
 

@@ -14,6 +14,7 @@ import {
   toResponse,
 } from '../_lib/http'
 import {
+  DEFAULT_TOKEN_TTL_MINUTES,
   SESSION_COOKIE,
   TOKEN_SCOPES,
   authenticate,
@@ -272,7 +273,7 @@ async function handleTokenList(env: Env, user: SessionUser): Promise<Response> {
 }
 
 async function handleTokenCreate(env: Env, request: Request, user: SessionUser): Promise<Response> {
-  const body = await readJson<{ name?: unknown; scopes?: unknown; expiresInDays?: unknown }>(request)
+  const body = await readJson<{ name?: unknown; scopes?: unknown; expiresInMinutes?: unknown }>(request)
   const name = reqStr(body.name, 'name', 40)
 
   // 不传 scopes 就是读写；传了才按白名单过滤，避免写进未知权限位
@@ -281,17 +282,23 @@ async function handleTokenCreate(env: Env, request: Request, user: SessionUser):
     : [...TOKEN_SCOPES]
   if (scopes.length === 0) throw new HttpError('scopes 至少要包含 read 或 write')
 
-  const expiresInDays =
-    body.expiresInDays === undefined || body.expiresInDays === null
-      ? null
-      : reqId(body.expiresInDays, 'expiresInDays')
-  if (expiresInDays !== null && expiresInDays > 3650) {
-    throw new HttpError('expiresInDays 最多 3650 天')
+  // 不传就是 15 分钟；显式传 null 表示永不过期
+  const expiresInMinutes =
+    body.expiresInMinutes === undefined
+      ? DEFAULT_TOKEN_TTL_MINUTES
+      : body.expiresInMinutes === null
+        ? null
+        : reqId(body.expiresInMinutes, 'expiresInMinutes')
+  if (expiresInMinutes !== null && expiresInMinutes > 525_600) {
+    throw new HttpError('expiresInMinutes 最多 525600 分钟（一年）')
   }
 
-  const issued = await issueApiToken(env.DB, user.id, { name, scopes, expiresInDays })
-  console.log('[navigo] 已签发 API 令牌', issued.prefix, `(${scopes.join(',')})`)
-  // 明文只在这个响应里出现一次，之后任何接口都只返回 prefix
+  const issued = await issueApiToken(env.DB, user.id, { name, scopes, expiresInMinutes })
+  console.log(
+    '[navigo] 已签发 API 令牌',
+    issued.prefix,
+    `(${scopes.join(',')}, ${expiresInMinutes ?? '永久'}分钟)`,
+  )
   return ok(issued)
 }
 

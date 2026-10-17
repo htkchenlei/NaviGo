@@ -62,14 +62,16 @@ export interface ExportBundle {
   }[]
 }
 
-/** 脚本调接口用的 Bearer 令牌；明文只在创建响应里出现一次 */
+/** 脚本调接口用的 Bearer 令牌；默认 15 分钟有效，过期由服务端删行 */
 export type TokenScope = 'read' | 'write'
 
 export interface ApiTokenMeta {
   id: number
   name: string
-  /** 明文前 8 位，形如 nvk_ab12cd34，仅用于辨认 */
+  /** 明文前 8 位，形如 nvk_ab12cd34，用于掩码显示 */
   prefix: string
+  /** 明文令牌，随时可查看/复制；旧令牌未存明文时为 null */
+  token: string | null
   scopes: TokenScope[]
   createdAt: number
   lastUsedAt: number | null

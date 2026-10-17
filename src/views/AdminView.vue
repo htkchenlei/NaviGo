@@ -3,9 +3,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  Check,
   Copy,
   Database,
   Download,
+  Eye,
+  EyeOff,
   KeyRound,
   LogOut,
   Plus,
@@ -45,17 +48,21 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const tokens = ref<ApiTokenMeta[]>([])
 const tokensLoading = ref(false)
 const creatingToken = ref(false)
-/** 刚生成的明文令牌，只在这个页面生命周期里存在 */
-const newToken = ref<string | null>(null)
-const tokenCopied = ref(false)
-const tokenForm = reactive({ name: '', write: true, days: 0 })
+/** 同一时刻只展开一枚，默认全部是掩码，避免整屏明文 */
+const revealedId = ref<number | null>(null)
+const copiedId = ref<number | null>(null)
+const tokenForm = reactive({ name: '', write: true, minutes: 15 })
 
+/** 默认 15 分钟：够跑完一次脚本，过期后服务端直接删行，不用手动清理 */
 const EXPIRY_OPTIONS = [
+  { value: 15, label: '15 分钟' },
+  { value: 60, label: '1 小时' },
+  { value: 1440, label: '1 天' },
+  { value: 10080, label: '7 天' },
   { value: 0, label: '永不过期' },
-  { value: 30, label: '30 天' },
-  { value: 90, label: '90 天' },
-  { value: 365, label: '一年' },
 ]
+
+const MASK = '••••••••••••'
 
 const pillClass = (active: boolean): string =>
   [
@@ -273,27 +280,49 @@ async function createToken(): Promise<void> {
     const issued = await api.createToken({
       name: tokenForm.name.trim(),
       scopes,
-      expiresInDays: tokenForm.days || null,
+      expiresInMinutes: tokenForm.minutes || null,
     })
-    newToken.value = issued.token
-    tokenCopied.value = false
     tokenForm.name = ''
     await loadTokens()
-    toast.success('令牌已生成', '明文只显示这一次，请先复制')
+    // 刚生成的那枚自动展开方便立刻复制，其余保持掩码
+    revealedId.value = issued.id
+    toast.success(
+      '令牌已生成',
+      tokenForm.minutes ? `${tokenForm.minutes} 分钟后自动失效并清理` : '永不过期，用完记得吊销',
+    )
   } catch (error) {
     toast.error('生成令牌失败', error instanceof Error ? error.message : undefined)
   }
   creatingToken.value = false
 }
 
-async function copyToken(): Promise<void> {
-  if (!newToken.value) return
+/** 列表里默认只露前缀，后面一律掩码 */
+function maskOf(token: ApiTokenMeta): string {
+  return `${token.prefix}${MASK}`
+}
+
+function toggleReveal(token: ApiTokenMeta): void {
+  if (!token.token) {
+    toast.error('这枚令牌签发于旧版本，库里没有可回读的明文，吊销后重新生成即可')
+    return
+  }
+  revealedId.value = revealedId.value === token.id ? null : token.id
+}
+
+async function copyToken(token: ApiTokenMeta): Promise<void> {
+  if (!token.token) {
+    toast.error('这枚令牌没有可回读的明文，吊销后重新生成即可')
+    return
+  }
   try {
-    await navigator.clipboard.writeText(newToken.value)
-    tokenCopied.value = true
+    await navigator.clipboard.writeText(token.token)
+    copiedId.value = token.id
+    window.setTimeout(() => {
+      if (copiedId.value === token.id) copiedId.value = null
+    }, 1600)
   } catch {
-    // 非安全上下文或拒绝剪贴板权限时，让用户自己选中这串文本
-    toast.error('自动复制被浏览器拦下了，请手动选中复制')
+    // 非安全上下文或拒绝剪贴板权限时，让用户点眼睛展开后自己选中
+    toast.error('自动复制被浏览器拦下了，请展开后手动选中复制')
   }
 }
 
@@ -453,7 +482,8 @@ function expiryOf(token: ApiTokenMeta): string {
             <p class="rounded-md bg-surface-2 px-md py-sm text-xs text-ink-2">
               请求带上 <code class="nv-url">Authorization: Bearer &lt;令牌&gt;</code> 就能免登录调用，
               可对模块与地址增删改查。令牌只能碰数据：改密码、管理令牌仍然只能在浏览器里操作。
-              明文只在生成时显示一次，库里存的是它的 SHA-256 哈希。
+              默认 <span class="font-semibold text-ink-2">15 分钟</span>后失效，过期即从库里删掉，不用手动清理；
+              列表里默认是掩码，随时可以点眼睛查看、或直接复制。
             </p>
 
             <div class="flex flex-col gap-sm rounded-md bg-surface-2 p-md">
@@ -482,8 +512,8 @@ function expiryOf(token: ApiTokenMeta): string {
                       v-for="option in EXPIRY_OPTIONS"
                       :key="option.value"
                       type="button"
-                      :class="pillClass(tokenForm.days === option.value)"
-                      @click="tokenForm.days = option.value"
+                      :class="pillClass(tokenForm.minutes === option.value)"
+                      @click="tokenForm.minutes = option.value"
                     >
                       {{ option.label }}
                     </button>
@@ -492,17 +522,6 @@ function expiryOf(token: ApiTokenMeta): string {
                 <BaseButton :loading="creatingToken" @click="createToken">
                   <template #icon><Plus :size="16" /></template>
                   生成令牌
-                </BaseButton>
-              </div>
-            </div>
-
-            <div v-if="newToken" class="flex flex-col gap-xs rounded-md bg-accent-wash px-md py-sm">
-              <span class="text-xs font-semibold text-ink-2">这串令牌只显示这一次，请现在复制走</span>
-              <div class="flex flex-wrap items-center gap-sm">
-                <code class="nv-url min-w-0 flex-1 select-all break-all text-ink">{{ newToken }}</code>
-                <BaseButton variant="outline" size="sm" @click="copyToken">
-                  <template #icon><Copy :size="14" /></template>
-                  {{ tokenCopied ? '已复制' : '复制' }}
                 </BaseButton>
               </div>
             </div>
@@ -532,22 +551,47 @@ function expiryOf(token: ApiTokenMeta): string {
                   :key="token.id"
                   class="flex flex-wrap items-center justify-between gap-sm rounded-md bg-surface-2 px-md py-sm"
                 >
-                  <div class="flex min-w-0 flex-col gap-[2px]">
+                  <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
                     <span class="flex items-center gap-2xs text-sm font-semibold text-ink">
                       {{ token.name }}
                       <span class="rounded-pill bg-surface px-2xs py-[1px] text-[11px] font-semibold text-ink-3">
                         {{ token.scopes.includes('write') ? '读写' : '只读' }}
                       </span>
                     </span>
-                    <span class="nv-url truncate text-xs text-ink-3">
-                      {{ token.prefix }}… · 创建于 {{ formatTime(token.createdAt) }} · 最后使用
-                      {{ formatTime(token.lastUsedAt) }} · 到期 {{ expiryOf(token) }}
+                    <code class="nv-url break-all text-xs text-ink-2">
+                      {{ revealedId === token.id && token.token ? token.token : maskOf(token) }}
+                    </code>
+                    <span class="nv-url truncate text-[11px] text-ink-3">
+                      创建于 {{ formatTime(token.createdAt) }} · 最后使用 {{ formatTime(token.lastUsedAt) }} ·
+                      到期 {{ expiryOf(token) }}
                     </span>
                   </div>
-                  <BaseButton variant="danger" size="sm" @click="askRevokeToken(token)">
-                    <template #icon><Trash2 :size="14" /></template>
-                    吊销
-                  </BaseButton>
+                  <div class="flex items-center gap-2xs">
+                    <button
+                      type="button"
+                      class="flex h-8 items-center gap-2xs rounded-pill px-sm text-xs font-semibold text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-ink"
+                      :aria-label="revealedId === token.id ? '隐藏令牌明文' : '查看令牌明文'"
+                      @click="toggleReveal(token)"
+                    >
+                      <EyeOff v-if="revealedId === token.id" :size="14" aria-hidden="true" />
+                      <Eye v-else :size="14" aria-hidden="true" />
+                      {{ revealedId === token.id ? '隐藏' : '查看' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="flex h-8 items-center gap-2xs rounded-pill px-sm text-xs font-semibold text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-ink"
+                      aria-label="复制令牌"
+                      @click="copyToken(token)"
+                    >
+                      <Check v-if="copiedId === token.id" :size="14" aria-hidden="true" />
+                      <Copy v-else :size="14" aria-hidden="true" />
+                      {{ copiedId === token.id ? '已复制' : '复制' }}
+                    </button>
+                    <BaseButton variant="danger" size="sm" @click="askRevokeToken(token)">
+                      <template #icon><Trash2 :size="14" /></template>
+                      吊销
+                    </BaseButton>
+                  </div>
                 </li>
               </ul>
             </div>

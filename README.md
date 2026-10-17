@@ -237,7 +237,7 @@ npm run cf:dev           # http://127.0.0.1:8788
 | `POST` | `/api/demo` | 载入示例数据 |
 | `GET` | `/api/icon?domain=` | favicon 代理 |
 | `GET` | `/api/tokens` | 令牌列表（只返回前缀与元信息，永不返回哈希） |
-| `POST` | `/api/tokens` | 签发令牌，明文只在该响应里出现一次 |
+| `POST` | `/api/tokens` | 签发令牌，默认 15 分钟有效（`expiresInMinutes` 可调，传 `null` 永不过期） |
 | `DELETE` | `/api/tokens/:id` | 吊销令牌 |
 
 > 最后三个 `/api/tokens` 与 `/api/auth/*` 只接受浏览器会话，令牌访问会被拒（`403 session_required`）。
@@ -287,7 +287,8 @@ curl -X DELETE https://你的域名/api/links/1 -H "Authorization: Bearer $TOKEN
 | 碰不到账号 | `/api/auth/*` 与 `/api/tokens` 只认浏览器会话，令牌访问返回 `403 session_required` |
 | 可单独吊销 | 设置页点「吊销」，或 `DELETE /api/tokens/:id`；吊销后下一次请求立即 `401` |
 | 同源校验 | 只对 Cookie 会话生效。Bearer 是脚本自己加的头，浏览器不会自动携带，不存在 CSRF |
-| 存储 | D1 只存 SHA-256 哈希；明文只在生成响应里出现一次，丢了只能重新生成 |
+| 有效期 | 默认 **15 分钟**，过期后由服务端直接删行，不需要手动清理；可选 1 小时 / 1 天 / 7 天 / 永不过期 |
+| 存储 | 同时存哈希与明文：后台列表默认掩码显示，随时可以点开查看、直接复制 |
 
 > 令牌等同于账号密码：只走 HTTPS，别塞进 URL（会留在访问日志和 Referer 里），别提交进 Git。
 > 怀疑泄漏就直接吊销 —— 不用改密码，也不影响其他设备。

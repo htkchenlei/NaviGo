@@ -58,6 +58,7 @@ const SCHEMA_STATEMENTS: string[] = [
      name TEXT NOT NULL,
      prefix TEXT NOT NULL,
      token_hash TEXT NOT NULL UNIQUE,
+     token_plain TEXT,
      user_id INTEGER NOT NULL,
      scopes TEXT NOT NULL DEFAULT 'read,write',
      created_at INTEGER NOT NULL,
@@ -71,7 +72,11 @@ const SCHEMA_STATEMENTS: string[] = [
  * 增量迁移：CREATE TABLE IF NOT EXISTS 只会补新建的表，
  * 已经存在的库拿不到新增的列，所以旧库必须单独 ALTER 一次。
  */
-const MIGRATION_STATEMENTS: string[] = ['ALTER TABLE links ADD COLUMN description TEXT']
+const MIGRATION_STATEMENTS: string[] = [
+  'ALTER TABLE links ADD COLUMN description TEXT',
+  // 令牌改成「随时可查看」后需要存明文；旧库补列，历史行留 NULL（只显示掩码，无法再查看）
+  'ALTER TABLE api_tokens ADD COLUMN token_plain TEXT',
+]
 
 let schemaReady = false
 
