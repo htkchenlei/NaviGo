@@ -21,6 +21,11 @@ const router = createRouter({
       component: () => import('@/views/AdminView.vue'),
     },
     {
+      path: '/admin/api',
+      name: 'api-docs',
+      component: () => import('@/views/ApiDocsView.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: { name: 'home' },
     },

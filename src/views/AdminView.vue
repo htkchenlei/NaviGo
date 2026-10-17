@@ -441,6 +441,13 @@ function expiryOf(token: ApiTokenMeta): string {
                 <h2 class="text-md text-ink">API 访问</h2>
                 <p class="text-xs text-ink-3">脚本、快捷指令、自动化平台用 Bearer 令牌调用 /api</p>
               </div>
+              <RouterLink
+                to="/admin/api"
+                class="ml-auto flex items-center gap-2xs rounded-pill bg-surface-2 px-sm py-[6px] text-xs font-semibold text-ink-2 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-accent-strong"
+              >
+                <Terminal :size="13" aria-hidden="true" />
+                接口文档
+              </RouterLink>
             </div>
 
             <p class="rounded-md bg-surface-2 px-md py-sm text-xs text-ink-2">
