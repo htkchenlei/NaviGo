@@ -178,3 +178,172 @@ export async function updatePassword(db: D1Database, userId: number, password: s
   const hash = await hashPassword(password)
   await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(hash, userId).run()
 }
+
+/* ── API 令牌（Bearer） ──────────────────────────────────────────── */
+
+/**
+ * 脚本、快捷指令、Home Assistant 这类客户端没法走登录表单，给它们发令牌。
+ *
+ * 与会话同一套存储原则：库里只存 SHA-256 哈希，明文只在创建响应里出现一次；
+ * 另外存一份前缀，让用户在列表里分得清是哪一枚、泄漏时能对上日志。
+ * 令牌可命名、可单独吊销、可设过期，也能限成只读 —— 这些是环境变量式静态密钥做不到的。
+ */
+export const API_TOKEN_PREFIX = 'nvk_'
+export const TOKEN_SCOPES = ['read', 'write'] as const
+export type TokenScope = (typeof TOKEN_SCOPES)[number]
+
+const TOKEN_PREFIX_DISPLAY = 8
+const LAST_USED_THROTTLE_SECONDS = 5 * 60
+
+export interface ApiTokenMeta {
+  id: number
+  name: string
+  /** 明文前 8 位，形如 nvk_ab12cd34；不参与鉴权，只用于辨认 */
+  prefix: string
+  scopes: TokenScope[]
+  createdAt: number
+  lastUsedAt: number | null
+  expiresAt: number | null
+}
+
+export interface IssuedApiToken extends ApiTokenMeta {
+  /** 明文令牌，整条生命周期里只会出现这一次 */
+  token: string
+}
+
+export interface AuthContext {
+  user: SessionUser
+  /** cookie = 浏览器会话；token = 脚本持有的 Bearer */
+  via: 'cookie' | 'token'
+  scopes: TokenScope[]
+  tokenId?: number
+}
+
+interface ApiTokenRow {
+  id: number
+  name: string
+  prefix: string
+  token_hash: string
+  user_id: number
+  scopes: string
+  created_at: number
+  last_used_at: number | null
+  expires_at: number | null
+}
+
+function parseScopes(raw: string): TokenScope[] {
+  const wanted = raw.split(',').map((item) => item.trim())
+  return TOKEN_SCOPES.filter((scope) => wanted.includes(scope))
+}
+
+function metaOf(row: ApiTokenRow): ApiTokenMeta {
+  return {
+    id: row.id,
+    name: row.name,
+    prefix: row.prefix,
+    scopes: parseScopes(row.scopes),
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at ?? null,
+    expiresAt: row.expires_at ?? null,
+  }
+}
+
+export async function issueApiToken(
+  db: D1Database,
+  userId: number,
+  input: { name: string; scopes: TokenScope[]; expiresInDays: number | null },
+): Promise<IssuedApiToken> {
+  const secret = toBase64Url(crypto.getRandomValues(new Uint8Array(32)))
+  const token = `${API_TOKEN_PREFIX}${secret}`
+  const prefix = `${API_TOKEN_PREFIX}${secret.slice(0, TOKEN_PREFIX_DISPLAY)}`
+  const now = Math.floor(Date.now() / 1000)
+  const scopes = TOKEN_SCOPES.filter((scope) => input.scopes.includes(scope))
+  const expiresAt = input.expiresInDays ? now + input.expiresInDays * 86_400 : null
+
+  const result = await db
+    .prepare(
+      `INSERT INTO api_tokens (name, prefix, token_hash, user_id, scopes, created_at, last_used_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+    )
+    .bind(input.name, prefix, await sha256Hex(token), userId, scopes.join(','), now, expiresAt)
+    .run()
+
+  return {
+    id: Number(result.meta.last_row_id ?? 0),
+    name: input.name,
+    prefix,
+    scopes,
+    createdAt: now,
+    lastUsedAt: null,
+    expiresAt,
+    token,
+  }
+}
+
+export async function listApiTokens(db: D1Database, userId: number): Promise<ApiTokenMeta[]> {
+  const result = await db
+    .prepare('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id DESC')
+    .bind(userId)
+    .all<ApiTokenRow>()
+  return ((result.results ?? []) as ApiTokenRow[]).map(metaOf)
+}
+
+/** 只能吊销自己的令牌；返回值表示是否真的删掉了一行 */
+export async function revokeApiToken(db: D1Database, userId: number, id: number): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?')
+    .bind(id, userId)
+    .run()
+  return (result.meta.changes ?? 0) > 0
+}
+
+/**
+ * 按哈希查表。过期令牌顺手删掉；last_used_at 做节流写回 ——
+ * 否则每个 GET 都要多打一次 D1，读接口的延迟全被这个副作用吃掉。
+ */
+export async function resolveApiToken(db: D1Database, raw: string): Promise<AuthContext | null> {
+  if (!raw.startsWith(API_TOKEN_PREFIX)) return null
+  const row = await db
+    .prepare(
+      `SELECT t.*, u.username AS username
+       FROM api_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = ?`,
+    )
+    .bind(await sha256Hex(raw))
+    .first<ApiTokenRow & { username: string }>()
+  if (!row) return null
+
+  const now = Math.floor(Date.now() / 1000)
+  if (row.expires_at && row.expires_at <= now) {
+    await db.prepare('DELETE FROM api_tokens WHERE id = ?').bind(row.id).run()
+    return null
+  }
+  if (!row.last_used_at || now - row.last_used_at >= LAST_USED_THROTTLE_SECONDS) {
+    await db.prepare('UPDATE api_tokens SET last_used_at = ? WHERE id = ?').bind(now, row.id).run()
+  }
+
+  return {
+    user: { id: row.user_id, username: row.username },
+    via: 'token',
+    scopes: parseScopes(row.scopes),
+    tokenId: row.id,
+  }
+}
+
+export function readBearer(request: Request): { present: boolean; token: string | null } {
+  const header = request.headers.get('authorization')
+  if (!header) return { present: false, token: null }
+  const matched = /^Bearer\s+(\S+)$/i.exec(header.trim())
+  return { present: true, token: matched ? matched[1] : null }
+}
+
+/**
+ * 全站鉴权入口：带了 Authorization 头就只认令牌（令牌无效直接 401，不回落到 Cookie，
+ * 免得半失效的令牌被会话悄悄顶上）；没带才回落到 HttpOnly 会话。
+ */
+export async function authenticate(db: D1Database, request: Request): Promise<AuthContext | null> {
+  const bearer = readBearer(request)
+  if (bearer.present) return bearer.token ? await resolveApiToken(db, bearer.token) : null
+  const user = await resolveSession(db, request)
+  return user ? { user, via: 'cookie', scopes: [...TOKEN_SCOPES] } : null
+}

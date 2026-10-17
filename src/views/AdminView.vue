@@ -3,14 +3,17 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  Copy,
   Database,
   Download,
   KeyRound,
   LogOut,
+  Plus,
   RefreshCw,
   Save,
   Server,
   Sparkles,
+  Terminal,
   Trash2,
   Upload,
 } from 'lucide-vue-next'
@@ -23,7 +26,7 @@ import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useNavStore } from '@/stores/nav'
 import { useToastStore } from '@/stores/toast'
-import type { ExportBundle, HealthInfo } from '@/api/types'
+import type { ApiTokenMeta, ExportBundle, HealthInfo, TokenScope } from '@/api/types'
 
 const nav = useNavStore()
 const auth = useAuthStore()
@@ -37,6 +40,30 @@ const health = ref<HealthInfo | null>(null)
 const healthError = ref('')
 const passwordDialogOpen = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+
+/* ── API 令牌 ────────────────────────────────────────────────────── */
+const tokens = ref<ApiTokenMeta[]>([])
+const tokensLoading = ref(false)
+const creatingToken = ref(false)
+/** 刚生成的明文令牌，只在这个页面生命周期里存在 */
+const newToken = ref<string | null>(null)
+const tokenCopied = ref(false)
+const tokenForm = reactive({ name: '', write: true, days: 0 })
+
+const EXPIRY_OPTIONS = [
+  { value: 0, label: '永不过期' },
+  { value: 30, label: '30 天' },
+  { value: 90, label: '90 天' },
+  { value: 365, label: '一年' },
+]
+
+const pillClass = (active: boolean): string =>
+  [
+    'rounded-pill px-sm py-[6px] text-xs font-semibold transition-colors duration-micro ease-out',
+    active
+      ? 'bg-accent-strong text-accent-ink'
+      : 'bg-surface text-ink-2 ring-1 ring-inset ring-rule hover:text-ink',
+  ].join(' ')
 
 const confirmState = reactive({
   open: false,
@@ -61,6 +88,7 @@ onMounted(async () => {
   if (!nav.loaded) await nav.load()
   syncForm()
   await loadHealth()
+  void loadTokens()
 })
 
 function syncForm(): void {
@@ -221,6 +249,83 @@ function askLogout(): void {
   }
   confirmState.open = true
 }
+
+/* ── API 令牌 ────────────────────────────────────────────────────── */
+
+async function loadTokens(): Promise<void> {
+  tokensLoading.value = true
+  try {
+    tokens.value = (await api.listTokens()).tokens
+  } catch (error) {
+    toast.error('读取令牌列表失败', error instanceof Error ? error.message : undefined)
+  }
+  tokensLoading.value = false
+}
+
+async function createToken(): Promise<void> {
+  if (!tokenForm.name.trim()) {
+    toast.error('先给令牌起个名字，日后才认得出是哪台设备在用')
+    return
+  }
+  creatingToken.value = true
+  try {
+    const scopes: TokenScope[] = tokenForm.write ? ['read', 'write'] : ['read']
+    const issued = await api.createToken({
+      name: tokenForm.name.trim(),
+      scopes,
+      expiresInDays: tokenForm.days || null,
+    })
+    newToken.value = issued.token
+    tokenCopied.value = false
+    tokenForm.name = ''
+    await loadTokens()
+    toast.success('令牌已生成', '明文只显示这一次，请先复制')
+  } catch (error) {
+    toast.error('生成令牌失败', error instanceof Error ? error.message : undefined)
+  }
+  creatingToken.value = false
+}
+
+async function copyToken(): Promise<void> {
+  if (!newToken.value) return
+  try {
+    await navigator.clipboard.writeText(newToken.value)
+    tokenCopied.value = true
+  } catch {
+    // 非安全上下文或拒绝剪贴板权限时，让用户自己选中这串文本
+    toast.error('自动复制被浏览器拦下了，请手动选中复制')
+  }
+}
+
+function askRevokeToken(token: ApiTokenMeta): void {
+  confirmState.title = `吊销「${token.name}」`
+  confirmState.description = `以 ${token.prefix} 开头的令牌会立即失效，正在用它的脚本下次请求就会收到 401。`
+  confirmState.detail = '吊销无法撤销，需要时只能重新生成一枚。'
+  confirmState.confirmLabel = '吊销令牌'
+  confirmState.tone = 'danger'
+  confirmState.run = async () => {
+    confirmState.loading = true
+    try {
+      await api.revokeToken(token.id)
+      await loadTokens()
+      toast.success('令牌已吊销')
+    } catch (error) {
+      toast.error('吊销失败', error instanceof Error ? error.message : undefined)
+    }
+    confirmState.loading = false
+    confirmState.open = false
+  }
+  confirmState.open = true
+}
+
+function formatTime(seconds: number | null): string {
+  if (!seconds) return '从未'
+  return new Date(seconds * 1000).toLocaleString('zh-CN', { hour12: false })
+}
+
+function expiryOf(token: ApiTokenMeta): string {
+  return token.expiresAt ? formatTime(token.expiresAt) : '永不过期'
+}
 </script>
 
 <template>
@@ -324,6 +429,120 @@ function askLogout(): void {
                 <template #icon><LogOut :size="16" /></template>
                 退出全部设备
               </BaseButton>
+            </div>
+          </section>
+
+          <section :class="[cardClass, 'lg:col-span-2']">
+            <div class="flex items-center gap-sm">
+              <span class="flex h-10 w-10 items-center justify-center rounded-md bg-macaron-butter-soft text-warning-strong" aria-hidden="true">
+                <Terminal :size="18" />
+              </span>
+              <div class="flex flex-col">
+                <h2 class="text-md text-ink">API 访问</h2>
+                <p class="text-xs text-ink-3">脚本、快捷指令、自动化平台用 Bearer 令牌调用 /api</p>
+              </div>
+            </div>
+
+            <p class="rounded-md bg-surface-2 px-md py-sm text-xs text-ink-2">
+              请求带上 <code class="nv-url">Authorization: Bearer &lt;令牌&gt;</code> 就能免登录调用，
+              可对模块与地址增删改查。令牌只能碰数据：改密码、管理令牌仍然只能在浏览器里操作。
+              明文只在生成时显示一次，库里存的是它的 SHA-256 哈希。
+            </p>
+
+            <div class="flex flex-col gap-sm rounded-md bg-surface-2 p-md">
+              <BaseInput
+                v-model="tokenForm.name"
+                label="令牌名称"
+                placeholder="例如：快捷指令 / 群晖计划任务"
+                :maxlength="40"
+              />
+              <div class="flex flex-wrap items-end gap-md">
+                <div class="flex flex-col gap-2xs">
+                  <span class="nv-label">权限</span>
+                  <div class="flex gap-2xs">
+                    <button type="button" :class="pillClass(!tokenForm.write)" @click="tokenForm.write = false">
+                      只读
+                    </button>
+                    <button type="button" :class="pillClass(tokenForm.write)" @click="tokenForm.write = true">
+                      读写
+                    </button>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-2xs">
+                  <span class="nv-label">有效期</span>
+                  <div class="flex flex-wrap gap-2xs">
+                    <button
+                      v-for="option in EXPIRY_OPTIONS"
+                      :key="option.value"
+                      type="button"
+                      :class="pillClass(tokenForm.days === option.value)"
+                      @click="tokenForm.days = option.value"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+                <BaseButton :loading="creatingToken" @click="createToken">
+                  <template #icon><Plus :size="16" /></template>
+                  生成令牌
+                </BaseButton>
+              </div>
+            </div>
+
+            <div v-if="newToken" class="flex flex-col gap-xs rounded-md bg-accent-wash px-md py-sm">
+              <span class="text-xs font-semibold text-ink-2">这串令牌只显示这一次，请现在复制走</span>
+              <div class="flex flex-wrap items-center gap-sm">
+                <code class="nv-url min-w-0 flex-1 select-all break-all text-ink">{{ newToken }}</code>
+                <BaseButton variant="outline" size="sm" @click="copyToken">
+                  <template #icon><Copy :size="14" /></template>
+                  {{ tokenCopied ? '已复制' : '复制' }}
+                </BaseButton>
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-sm">
+              <div class="flex items-center justify-between gap-sm">
+                <span class="nv-label">已签发的令牌</span>
+                <button
+                  type="button"
+                  class="flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-ink"
+                  aria-label="刷新令牌列表"
+                  title="刷新"
+                  :disabled="tokensLoading"
+                  @click="loadTokens"
+                >
+                  <RefreshCw :size="14" :class="tokensLoading ? 'animate-spin' : ''" aria-hidden="true" />
+                </button>
+              </div>
+
+              <p v-if="tokens.length === 0" class="text-xs text-ink-3">
+                还没有令牌。生成一枚之后，脚本就能带着它增删改查。
+              </p>
+
+              <ul v-else class="flex flex-col gap-xs">
+                <li
+                  v-for="token in tokens"
+                  :key="token.id"
+                  class="flex flex-wrap items-center justify-between gap-sm rounded-md bg-surface-2 px-md py-sm"
+                >
+                  <div class="flex min-w-0 flex-col gap-[2px]">
+                    <span class="flex items-center gap-2xs text-sm font-semibold text-ink">
+                      {{ token.name }}
+                      <span class="rounded-pill bg-surface px-2xs py-[1px] text-[11px] font-semibold text-ink-3">
+                        {{ token.scopes.includes('write') ? '读写' : '只读' }}
+                      </span>
+                    </span>
+                    <span class="nv-url truncate text-xs text-ink-3">
+                      {{ token.prefix }}… · 创建于 {{ formatTime(token.createdAt) }} · 最后使用
+                      {{ formatTime(token.lastUsedAt) }} · 到期 {{ expiryOf(token) }}
+                    </span>
+                  </div>
+                  <BaseButton variant="danger" size="sm" @click="askRevokeToken(token)">
+                    <template #icon><Trash2 :size="14" /></template>
+                    吊销
+                  </BaseButton>
+                </li>
+              </ul>
             </div>
           </section>
 

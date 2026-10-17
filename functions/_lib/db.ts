@@ -53,6 +53,18 @@ const SCHEMA_STATEMENTS: string[] = [
      status INTEGER NOT NULL,
      fetched_at INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS api_tokens (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     name TEXT NOT NULL,
+     prefix TEXT NOT NULL,
+     token_hash TEXT NOT NULL UNIQUE,
+     user_id INTEGER NOT NULL,
+     scopes TEXT NOT NULL DEFAULT 'read,write',
+     created_at INTEGER NOT NULL,
+     last_used_at INTEGER,
+     expires_at INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id)`,
 ]
 
 /**

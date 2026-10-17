@@ -21,6 +21,7 @@
 - [三种访问模式是怎么工作的](#三种访问模式是怎么工作的)
 - [图标是怎么来的](#图标是怎么来的)
 - [接口一览](#接口一览)
+- [用令牌调 API](#用令牌调-api)
 - [数据表](#数据表)
 - [常见问题](#常见问题)
 - [安全说明](#安全说明)
@@ -206,7 +207,9 @@ npm run cf:dev           # http://127.0.0.1:8788
 
 ## 接口一览
 
-除 `auth/login` 和 `health` 外，全部要求有效会话；写操作额外校验同源 Origin。
+除 `auth/login` 和 `health` 外，全部要求凭证：HttpOnly 会话 Cookie（浏览器）或
+`Authorization: Bearer <令牌>`（脚本，见[用令牌调 API](#用令牌调-api)）。
+写操作额外校验同源 Origin —— 但只对 Cookie 会话生效。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -217,9 +220,13 @@ npm run cf:dev           # http://127.0.0.1:8788
 | `GET` | `/api/auth/me` | 当前会话信息 |
 | `POST` | `/api/auth/password` | 修改密码（校验旧密码，改完吊销全部会话） |
 | `GET` | `/api/nav` | 一次返回全部模块、链接与设置（导航页只有 1 次往返） |
+| `GET` | `/api/modules` | 模块列表（每个模块带上它的链接） |
+| `GET` | `/api/modules/:id` | 单个模块及其链接 |
 | `POST` | `/api/modules` | 新建模块 |
 | `PUT` | `/api/modules/:id` | 重命名 / 换色 |
 | `DELETE` | `/api/modules/:id` | 删除模块（级联删除其链接） |
+| `GET` | `/api/links` | 链接列表（扁平，带 `moduleId`） |
+| `GET` | `/api/links/:id` | 单个链接 |
 | `POST` | `/api/links` | 新建链接 |
 | `PUT` | `/api/links/:id` | 修改链接（也可改所属模块） |
 | `DELETE` | `/api/links/:id` | 删除链接 |
@@ -229,6 +236,61 @@ npm run cf:dev           # http://127.0.0.1:8788
 | `POST` | `/api/import` | 导入配置（覆盖当前模块与链接） |
 | `POST` | `/api/demo` | 载入示例数据 |
 | `GET` | `/api/icon?domain=` | favicon 代理 |
+| `GET` | `/api/tokens` | 令牌列表（只返回前缀与元信息，永不返回哈希） |
+| `POST` | `/api/tokens` | 签发令牌，明文只在该响应里出现一次 |
+| `DELETE` | `/api/tokens/:id` | 吊销令牌 |
+
+> 最后三个 `/api/tokens` 与 `/api/auth/*` 只接受浏览器会话，令牌访问会被拒（`403 session_required`）。
+
+---
+
+## 用令牌调 API
+
+浏览器里走的是 HttpOnly 会话 Cookie，脚本没法用那套。去**后台设置 → API 访问**签发一枚
+Bearer 令牌，就能免登录调接口；接口返回结构统一为 `{ ok: true, data }` 或 `{ ok: false, error, code }`。
+
+```bash
+TOKEN=nvk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# 查：模块（含各自的链接）
+curl -H "Authorization: Bearer $TOKEN" https://你的域名/api/modules
+
+# 查：链接（扁平）与单条
+curl -H "Authorization: Bearer $TOKEN" https://你的域名/api/links
+curl -H "Authorization: Bearer $TOKEN" https://你的域名/api/links/1
+
+# 增：先建模块，再往里加地址
+curl -X POST https://你的域名/api/modules \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"name":"家庭服务","color":"mint"}'
+
+curl -X POST https://你的域名/api/links \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"moduleId":1,"name":"群晖 NAS","urlLan":"http://192.168.1.10:5000"}'
+
+# 改 / 删
+curl -X PUT https://你的域名/api/links/1 \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"name":"NAS","urlWan":"https://nas.example.com"}'
+
+curl -X DELETE https://你的域名/api/links/1 -H "Authorization: Bearer $TOKEN"
+```
+
+创建链接时 `moduleId` 必填，三个地址至少填一个且必须带 `http://` 或 `https://`，
+否则会返回 `400`。改链接时只传要改的字段，没传的保持原值。
+
+权限边界：
+
+| 规则 | 说明 |
+| --- | --- |
+| 只读 / 读写 | 生成时可选。只读令牌可以 `GET`，写操作被 `403 token_read_only` 拦住 |
+| 碰不到账号 | `/api/auth/*` 与 `/api/tokens` 只认浏览器会话，令牌访问返回 `403 session_required` |
+| 可单独吊销 | 设置页点「吊销」，或 `DELETE /api/tokens/:id`；吊销后下一次请求立即 `401` |
+| 同源校验 | 只对 Cookie 会话生效。Bearer 是脚本自己加的头，浏览器不会自动携带，不存在 CSRF |
+| 存储 | D1 只存 SHA-256 哈希；明文只在生成响应里出现一次，丢了只能重新生成 |
+
+> 令牌等同于账号密码：只走 HTTPS，别塞进 URL（会留在访问日志和 Referer 里），别提交进 Git。
+> 怀疑泄漏就直接吊销 —— 不用改密码，也不影响其他设备。
 
 ---
 
@@ -245,6 +307,7 @@ npm run cf:dev           # http://127.0.0.1:8788
 | `links` | 链接名称、描述、图标、三种地址、排序 |
 | `settings` | 站点标题、副标题、外网回退开关、默认搜索引擎等 |
 | `icon_cache` | 图标抓取的正 / 负缓存 |
+| `api_tokens` | 脚本用的 Bearer 令牌：只存哈希与前缀，含权限位、过期时间、最后使用时间 |
 
 ---
 

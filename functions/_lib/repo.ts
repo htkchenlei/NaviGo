@@ -17,7 +17,16 @@ export async function getNav(db: D1Database): Promise<NavPayload> {
     settings[row.key] = row.value
   }
 
-  const modules: Module[] = ((moduleResult.results ?? []) as ModuleRow[]).map((row) => ({
+  const modules = groupModules(
+    (moduleResult.results ?? []) as ModuleRow[],
+    (linkResult.results ?? []) as LinkRow[],
+  )
+
+  return { modules, settings, version: SITE_VERSION }
+}
+
+function groupModules(moduleRows: ModuleRow[], linkRows: LinkRow[]): Module[] {
+  const modules: Module[] = moduleRows.map((row) => ({
     id: row.id,
     name: row.name,
     color: row.color,
@@ -25,13 +34,13 @@ export async function getNav(db: D1Database): Promise<NavPayload> {
   }))
   const index = new Map(modules.map((module) => [module.id, module]))
 
-  for (const row of (linkResult.results ?? []) as LinkRow[]) {
+  for (const row of linkRows) {
     const target = index.get(row.module_id)
     if (!target) continue
     target.links.push(mapLink(row))
   }
 
-  return { modules, settings, version: SITE_VERSION }
+  return modules
 }
 
 function mapLink(row: LinkRow): Link {
@@ -45,6 +54,47 @@ function mapLink(row: LinkRow): Link {
     urlVpn: row.url_vpn,
     urlWan: row.url_wan,
   }
+}
+
+/* ── 单表查询（REST 风格读接口用，/api/nav 之外不再只能一把梭） ──── */
+
+const MODULE_COLUMNS = 'id, name, color, sort_order'
+const LINK_COLUMNS =
+  'id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order'
+
+export async function listModules(db: D1Database): Promise<Module[]> {
+  const [moduleResult, linkResult] = await db.batch([
+    db.prepare(`SELECT ${MODULE_COLUMNS} FROM modules ORDER BY sort_order ASC, id ASC`),
+    db.prepare(`SELECT ${LINK_COLUMNS} FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`),
+  ])
+  return groupModules(
+    (moduleResult.results ?? []) as ModuleRow[],
+    (linkResult.results ?? []) as LinkRow[],
+  )
+}
+
+export async function getModule(db: D1Database, id: number): Promise<Module | null> {
+  const [moduleResult, linkResult] = await db.batch([
+    db.prepare(`SELECT ${MODULE_COLUMNS} FROM modules WHERE id = ?`).bind(id),
+    db
+      .prepare(`SELECT ${LINK_COLUMNS} FROM links WHERE module_id = ? ORDER BY sort_order ASC, id ASC`)
+      .bind(id),
+  ])
+  const rows = (moduleResult.results ?? []) as ModuleRow[]
+  if (rows.length === 0) return null
+  return groupModules(rows, (linkResult.results ?? []) as LinkRow[])[0] ?? null
+}
+
+export async function listLinks(db: D1Database): Promise<Link[]> {
+  const result = await db
+    .prepare(`SELECT ${LINK_COLUMNS} FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`)
+    .all<LinkRow>()
+  return ((result.results ?? []) as LinkRow[]).map(mapLink)
+}
+
+export async function getLink(db: D1Database, id: number): Promise<Link | null> {
+  const row = await db.prepare(`SELECT ${LINK_COLUMNS} FROM links WHERE id = ?`).bind(id).first<LinkRow>()
+  return row ? mapLink(row) : null
 }
 
 /* ── 模块 ────────────────────────────────────────────────────────── */

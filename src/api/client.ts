@@ -1,10 +1,13 @@
 import type {
+  ApiTokenMeta,
   ExportBundle,
   HealthInfo,
+  IssuedApiToken,
   LinkPayload,
   NavModule,
   NavPayload,
   SessionInfo,
+  TokenScope,
 } from './types'
 
 export class ApiError extends Error {
@@ -95,6 +98,12 @@ export const api = {
   }) => post<{ updated: number }>('reorder', payload),
 
   saveSettings: (values: Record<string, string>) => post<Record<string, string>>('settings', values),
+
+  listTokens: () => request<{ tokens: ApiTokenMeta[] }>('tokens'),
+  /** 返回体里的 token 是明文，只此一次，之后再也取不回来 */
+  createToken: (input: { name: string; scopes: TokenScope[]; expiresInDays: number | null }) =>
+    post<IssuedApiToken>('tokens', input),
+  revokeToken: (id: number) => request<unknown>(`tokens/${id}`, { method: 'DELETE' }),
 
   exportData: () => request<ExportBundle>('export'),
   importData: (bundle: ExportBundle) => post<NavPayload>('import', bundle),

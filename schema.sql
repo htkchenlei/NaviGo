@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS icon_cache (
   fetched_at INTEGER NOT NULL
 );
 
+-- 脚本用的 Bearer 令牌：只存 SHA-256 哈希，明文只在创建响应里出现一次。
+-- prefix 是明文前 8 位（nvk_ab12cd34），仅用于在后台列表里辨认是哪一枚。
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id INTEGER NOT NULL,
+  scopes TEXT NOT NULL DEFAULT 'read,write',
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  expires_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id);
+
 -- ── 从 v1.0 升级上来的旧库 ────────────────────────────────────────
 -- v1.1 起 links 增加了 description 列。运行时也会自动补（见 functions/_lib/db.ts），
 -- 只有在你手动管理 schema 时才需要执行这一句；重复执行会报 duplicate column，属正常。

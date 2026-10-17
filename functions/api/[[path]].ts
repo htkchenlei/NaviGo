@@ -15,20 +15,25 @@ import {
 } from '../_lib/http'
 import {
   SESSION_COOKIE,
+  TOKEN_SCOPES,
+  authenticate,
   checkLoginThrottle,
   clearLoginFailures,
   clientIp,
   expiredSessionCookie,
   findUserByName,
+  issueApiToken,
   issueSession,
+  listApiTokens,
   recordLoginFailure,
-  resolveSession,
   revokeAllSessions,
+  revokeApiToken,
   revokeSession,
   sessionCookie,
   updatePassword,
   verifyPassword,
 } from '../_lib/auth'
+import type { SessionUser, TokenScope } from '../_lib/auth'
 import { countUsers, ensureSchema } from '../_lib/db'
 import { resolveIcon } from '../_lib/icon'
 import {
@@ -39,8 +44,12 @@ import {
   deleteLink,
   deleteModule,
   exportBundle,
+  getLink,
+  getModule,
   getNav,
   importBundle,
+  listLinks,
+  listModules,
   saveSettings,
   updateLink,
   updateModule,
@@ -77,12 +86,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (route === 'health' && method === 'GET') return await handleHealth(env)
     if (route === 'auth/login' && method === 'POST') return await handleLogin(env, request)
 
-    const user = await resolveSession(env.DB, request)
-    if (!user) return fail('未登录或会话已过期', 401, 'unauthorized')
+    const authz = await authenticate(env.DB, request)
+    if (!authz) return fail('未登录或令牌无效', 401, 'unauthorized')
+    const user = authz.user
+    const viaToken = authz.via === 'token'
 
-    if (WRITE_METHODS.has(method)) {
+    // 令牌是脚本自己加的头，浏览器不会自动携带，不存在 CSRF；
+    // 同源校验只对 Cookie 会话有意义，脚本也就不必为了过校验去伪造 Origin。
+    if (WRITE_METHODS.has(method) && !viaToken) {
       const originError = assertSameOrigin(request)
       if (originError) return originError
+    }
+
+    // 令牌只能碰数据：账号安全与令牌管理必须由浏览器会话操作，
+    // 否则一枚泄漏的令牌就能改密码、也能给自己续命。
+    const sessionOnly = route.startsWith('auth/') || route === 'tokens' || route.startsWith('tokens/')
+    if (viaToken && sessionOnly) {
+      return fail('该接口只接受登录会话，不支持 API 令牌', 403, 'session_required')
+    }
+
+    if (viaToken && WRITE_METHODS.has(method) && !authz.scopes.includes('write')) {
+      return fail('该令牌只有只读权限', 403, 'token_read_only')
     }
 
     if (route === 'auth/me' && method === 'GET') return await handleMe(env, user.username)
@@ -96,6 +120,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return await handlePasswordChange(env, request, user)
     }
 
+    if (route === 'tokens' && method === 'GET') return await handleTokenList(env, user)
+    if (route === 'tokens' && method === 'POST') return await handleTokenCreate(env, request, user)
+    const tokenId = matchId(route, 'tokens')
+    if (tokenId !== null && method === 'DELETE') {
+      const removed = await revokeApiToken(env.DB, user.id, tokenId)
+      return removed ? ok({ id: tokenId }) : fail('令牌不存在', 404, 'not_found')
+    }
+
     if (route === 'nav' && method === 'GET') return ok(await getNav(env.DB))
     if (route === 'settings' && method === 'POST') return await handleSettings(env, request)
     if (route === 'reorder' && method === 'POST') {
@@ -104,10 +136,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return ok({ updated: count })
     }
 
+    if (route === 'modules' && method === 'GET') return ok({ modules: await listModules(env.DB) })
     if (route === 'modules' && method === 'POST') return await handleModuleCreate(env, request)
 
     const moduleId = matchId(route, 'modules')
     if (moduleId !== null) {
+      if (method === 'GET') {
+        const found = await getModule(env.DB, moduleId)
+        return found ? ok(found) : fail('模块不存在', 404, 'not_found')
+      }
       if (method === 'PUT') return await handleModuleUpdate(env, request, moduleId)
       if (method === 'DELETE') {
         const removed = await deleteModule(env.DB, moduleId)
@@ -115,10 +152,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
+    if (route === 'links' && method === 'GET') return ok({ links: await listLinks(env.DB) })
     if (route === 'links' && method === 'POST') return await handleLinkCreate(env, request)
 
     const linkId = matchId(route, 'links')
     if (linkId !== null) {
+      if (method === 'GET') {
+        const found = await getLink(env.DB, linkId)
+        return found ? ok(found) : fail('链接不存在', 404, 'not_found')
+      }
       if (method === 'PUT') return await handleLinkUpdate(env, request, linkId)
       if (method === 'DELETE') {
         const removed = await deleteLink(env.DB, linkId)
@@ -221,6 +263,36 @@ async function handlePasswordChange(
   await saveSettings(env.DB, { password_changed: '1' })
   console.log('[navigo] 已更新密码并吊销全部会话', session.username)
   return ok({ changed: true })
+}
+
+/* ── API 令牌 ────────────────────────────────────────────────────── */
+
+async function handleTokenList(env: Env, user: SessionUser): Promise<Response> {
+  return ok({ tokens: await listApiTokens(env.DB, user.id) })
+}
+
+async function handleTokenCreate(env: Env, request: Request, user: SessionUser): Promise<Response> {
+  const body = await readJson<{ name?: unknown; scopes?: unknown; expiresInDays?: unknown }>(request)
+  const name = reqStr(body.name, 'name', 40)
+
+  // 不传 scopes 就是读写；传了才按白名单过滤，避免写进未知权限位
+  const scopes: TokenScope[] = Array.isArray(body.scopes)
+    ? TOKEN_SCOPES.filter((scope) => (body.scopes as unknown[]).includes(scope))
+    : [...TOKEN_SCOPES]
+  if (scopes.length === 0) throw new HttpError('scopes 至少要包含 read 或 write')
+
+  const expiresInDays =
+    body.expiresInDays === undefined || body.expiresInDays === null
+      ? null
+      : reqId(body.expiresInDays, 'expiresInDays')
+  if (expiresInDays !== null && expiresInDays > 3650) {
+    throw new HttpError('expiresInDays 最多 3650 天')
+  }
+
+  const issued = await issueApiToken(env.DB, user.id, { name, scopes, expiresInDays })
+  console.log('[navigo] 已签发 API 令牌', issued.prefix, `(${scopes.join(',')})`)
+  // 明文只在这个响应里出现一次，之后任何接口都只返回 prefix
+  return ok(issued)
 }
 
 /* ── 模块与链接 ──────────────────────────────────────────────────── */

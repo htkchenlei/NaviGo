@@ -62,6 +62,24 @@ export interface ExportBundle {
   }[]
 }
 
+/** 脚本调接口用的 Bearer 令牌；明文只在创建响应里出现一次 */
+export type TokenScope = 'read' | 'write'
+
+export interface ApiTokenMeta {
+  id: number
+  name: string
+  /** 明文前 8 位，形如 nvk_ab12cd34，仅用于辨认 */
+  prefix: string
+  scopes: TokenScope[]
+  createdAt: number
+  lastUsedAt: number | null
+  expiresAt: number | null
+}
+
+export interface IssuedApiToken extends ApiTokenMeta {
+  token: string
+}
+
 export interface LinkPayload {
   name: string
   description: string | null
