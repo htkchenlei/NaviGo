@@ -95,7 +95,8 @@ const dirty = computed(
 )
 
 onMounted(async () => {
-  if (!nav.loaded) await nav.load()
+  // 后台始终操作首页数据域，避免从 /private 切过来时把私密模块列进「模块排序」
+  await nav.ensureScope('public')
   syncForm()
   await loadHealth()
   void loadTokens()
@@ -222,8 +223,8 @@ function askDemo(): void {
 }
 
 function askReset(): void {
-  confirmState.title = '清空全部模块'
-  confirmState.description = '所有模块与地址都会被删除，账号与设置保留。'
+  confirmState.title = '清空模块'
+  confirmState.description = '导航页上的模块与地址都会被删除，账号与设置保留。'
   confirmState.detail = '该操作无法撤销，请先导出备份。'
   confirmState.confirmLabel = '清空数据'
   confirmState.tone = 'danger'
@@ -238,7 +239,7 @@ function askReset(): void {
       }
       const payload = await api.importData(bundle)
       nav.applyPayload(payload.modules, payload.settings)
-      toast.success('已清空全部模块')
+      toast.success('已清空模块')
     } catch (error) {
       toast.error('清空失败', error instanceof Error ? error.message : undefined)
     }
@@ -731,7 +732,7 @@ function expiryOf(token: ApiTokenMeta): string {
               </BaseButton>
               <BaseButton variant="danger" @click="askReset">
                 <template #icon><Trash2 :size="16" /></template>
-                清空全部模块
+                清空模块
               </BaseButton>
             </div>
 

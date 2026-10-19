@@ -15,11 +15,15 @@ export interface UserRow {
   created_at: number
 }
 
+/** 数据域：public 对应首页，private 对应手动访问的 /private 私密页 */
+export type NavScope = 'public' | 'private'
+
 export interface ModuleRow {
   id: number
   name: string
   color: string
   sort_order: number
+  scope: NavScope
   /** 该模块下所有地址被点开的累计次数，自动排序的依据 */
   click_count: number
   /** 固定到第几位（1 起）；null 表示跟随点击热度排 */

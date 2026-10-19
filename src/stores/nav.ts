@@ -3,7 +3,14 @@ import { computed, ref } from 'vue'
 import { api } from '@/api/client'
 import { MODE_META, clearManualMode, detectMode, readManualMode, writeManualMode } from '@/utils/hostMode'
 import { useToastStore } from '@/stores/toast'
-import type { AccessMode, LinkPayload, ModeSource, NavModule, NavSettings } from '@/api/types'
+import type {
+  AccessMode,
+  LinkPayload,
+  ModeSource,
+  NavModule,
+  NavScope,
+  NavSettings,
+} from '@/api/types'
 
 const DEFAULT_SETTINGS: NavSettings = {
   site_title: 'NaviGo',
@@ -81,6 +88,8 @@ export const useNavStore = defineStore('nav', () => {
   const loaded = ref(false)
   const loadError = ref<string | null>(null)
   const saving = ref(false)
+  /** 当前 store 装的是哪个数据域的数据；切页时必须跟着切，否则会串数据 */
+  const scope = ref<NavScope>('public')
 
   const initialMode = readManualMode()
   const mode = ref<AccessMode>(initialMode ?? detectMode('wan'))
@@ -172,11 +181,12 @@ export const useNavStore = defineStore('nav', () => {
     return { url: null, degraded: false }
   }
 
-  async function load(): Promise<void> {
+  async function load(nextScope: NavScope = scope.value): Promise<void> {
+    scope.value = nextScope
     loading.value = true
     loadError.value = null
     try {
-      const payload = await api.fetchNav()
+      const payload = await api.fetchNav(nextScope)
       modules.value = cloneModules(payload.modules)
       settings.value = { ...DEFAULT_SETTINGS, ...payload.settings }
       version.value = payload.version
@@ -190,11 +200,19 @@ export const useNavStore = defineStore('nav', () => {
     }
   }
 
+  /** 后台这类固定作用域的页面用它：作用域不一致才重新拉，避免无谓请求 */
+  async function ensureScope(target: NavScope): Promise<void> {
+    if (scope.value === target && loaded.value) return
+    await load(target)
+  }
+
   async function reload(): Promise<void> {
     await load()
   }
 
   function applyPayload(nextModules: NavModule[], nextSettings?: NavSettings): void {
+    // 导入 / 示例数据 / 恢复备份都只作用于首页
+    scope.value = 'public'
     modules.value = cloneModules(nextModules)
     if (nextSettings) settings.value = { ...DEFAULT_SETTINGS, ...nextSettings }
     lastGood = cloneModules(nextModules)
@@ -205,7 +223,7 @@ export const useNavStore = defineStore('nav', () => {
   async function addModule(name: string, color: string): Promise<boolean> {
     const toast = useToastStore()
     try {
-      const created = await api.createModule(name, color)
+      const created = await api.createModule(name, color, scope.value)
       modules.value = [
         ...modules.value,
         {
@@ -415,12 +433,36 @@ export const useNavStore = defineStore('nav', () => {
     }
   }
 
+  /**
+   * 从首页把选中的模块 / 地址复制到当前数据域（/private 用）。
+   * 同名模块已存在时直接追加链接，避免反复导入出现一堆重名分组。
+   */
+  async function importGroups(
+    groups: { name: string; color: string; links: LinkPayload[] }[],
+  ): Promise<boolean> {
+    if (groups.length === 0) return false
+    try {
+      for (const group of groups) {
+        const existing = modules.value.find((module) => module.name === group.name)
+        const targetId =
+          existing?.id ?? (await api.createModule(group.name, group.color, scope.value)).id
+        for (const link of group.links) await api.createLink(targetId, link)
+      }
+      await load(scope.value)
+      return true
+    } catch (error) {
+      useToastStore().error('导入失败', error instanceof Error ? error.message : undefined)
+      return false
+    }
+  }
+
   function resetLocal(): void {
     modules.value = []
     settings.value = { ...DEFAULT_SETTINGS }
     loaded.value = false
     manage.value = false
     query.value = ''
+    scope.value = 'public'
   }
 
   return {
@@ -431,6 +473,7 @@ export const useNavStore = defineStore('nav', () => {
     loaded,
     loadError,
     saving,
+    scope,
     mode,
     modeSource,
     query,
@@ -448,8 +491,10 @@ export const useNavStore = defineStore('nav', () => {
     syncAutoMode,
     resolveLink,
     load,
+    ensureScope,
     reload,
     applyPayload,
+    importGroups,
     addModule,
     editModule,
     removeModule,

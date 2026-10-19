@@ -37,8 +37,11 @@ CREATE TABLE IF NOT EXISTS modules (
   sort_order INTEGER NOT NULL DEFAULT 0,
   -- 自动排序用：模块下所有地址的累计点击数，以及「固定到第几位」（1 起，NULL = 不固定）
   click_count INTEGER NOT NULL DEFAULT 0,
-  pinned_rank INTEGER
+  pinned_rank INTEGER,
+  -- 数据域：public = 首页模块，private = /private 私密页模块
+  scope TEXT NOT NULL DEFAULT 'public'
 );
+CREATE INDEX IF NOT EXISTS idx_modules_scope ON modules (scope, sort_order);
 
 CREATE TABLE IF NOT EXISTS links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

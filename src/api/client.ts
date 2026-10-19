@@ -6,6 +6,7 @@ import type {
   LinkPayload,
   NavModule,
   NavPayload,
+  NavScope,
   SessionInfo,
   TokenScope,
 } from './types'
@@ -81,9 +82,11 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     post<{ changed: boolean }>('auth/password', { currentPassword, newPassword }),
 
-  fetchNav: () => request<NavPayload>('nav'),
+  fetchNav: (scope: NavScope = 'public') =>
+    request<NavPayload>(scope === 'private' ? 'nav?scope=private' : 'nav'),
 
-  createModule: (name: string, color: string) => post<NavModule>('modules', { name, color }),
+  createModule: (name: string, color: string, scope: NavScope = 'public') =>
+    post<NavModule>('modules', { name, color, scope }),
   updateModule: (
     id: number,
     patch: { name?: string; color?: string; pinnedRank?: number | null },

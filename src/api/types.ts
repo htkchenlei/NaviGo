@@ -4,6 +4,9 @@ export type AccessMode = 'lan' | 'vpn' | 'wan'
 
 export type ModeSource = 'auto' | 'manual'
 
+/** 数据域：public = 首页，private = 手动访问 /private 的私密页 */
+export type NavScope = 'public' | 'private'
+
 export interface NavLink {
   id: number
   moduleId: number

@@ -1,14 +1,19 @@
 import { SETTING_DEFAULTS, SITE_VERSION } from './types'
-import type { Link, LinkRow, Module, ModuleRow, NavPayload } from './types'
+import type { Link, LinkRow, Module, ModuleRow, NavPayload, NavScope } from './types'
 
-export async function getNav(db: D1Database): Promise<NavPayload> {
+export async function getNav(db: D1Database, scope: NavScope = 'public'): Promise<NavPayload> {
   // 一次性取全量：导航页每次打开只有 1 次 API 往返，避免 N+1
   const [moduleResult, linkResult, settingResult] = await db.batch([
-    db.prepare(`SELECT ${MODULE_COLUMNS} FROM modules ORDER BY sort_order ASC, id ASC`),
-    db.prepare(
-      `SELECT id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order
-       FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`,
-    ),
+    db
+      .prepare(`SELECT ${MODULE_COLUMNS} FROM modules WHERE scope = ? ORDER BY sort_order ASC, id ASC`)
+      .bind(scope),
+    db
+      .prepare(
+        `SELECT ${LINK_COLUMNS} FROM links
+         WHERE module_id IN (SELECT id FROM modules WHERE scope = ?)
+         ORDER BY module_id ASC, sort_order ASC, id ASC`,
+      )
+      .bind(scope),
     db.prepare('SELECT key, value FROM settings'),
   ])
 
@@ -60,14 +65,22 @@ function mapLink(row: LinkRow): Link {
 
 /* ── 单表查询（REST 风格读接口用，/api/nav 之外不再只能一把梭） ──── */
 
-const MODULE_COLUMNS = 'id, name, color, sort_order, click_count, pinned_rank'
+const MODULE_COLUMNS = 'id, name, color, sort_order, click_count, pinned_rank, scope'
 const LINK_COLUMNS =
   'id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order'
 
-export async function listModules(db: D1Database): Promise<Module[]> {
+export async function listModules(db: D1Database, scope: NavScope = 'public'): Promise<Module[]> {
   const [moduleResult, linkResult] = await db.batch([
-    db.prepare(`SELECT ${MODULE_COLUMNS} FROM modules ORDER BY sort_order ASC, id ASC`),
-    db.prepare(`SELECT ${LINK_COLUMNS} FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`),
+    db
+      .prepare(`SELECT ${MODULE_COLUMNS} FROM modules WHERE scope = ? ORDER BY sort_order ASC, id ASC`)
+      .bind(scope),
+    db
+      .prepare(
+        `SELECT ${LINK_COLUMNS} FROM links
+         WHERE module_id IN (SELECT id FROM modules WHERE scope = ?)
+         ORDER BY module_id ASC, sort_order ASC, id ASC`,
+      )
+      .bind(scope),
   ])
   return groupModules(
     (moduleResult.results ?? []) as ModuleRow[],
@@ -87,9 +100,14 @@ export async function getModule(db: D1Database, id: number): Promise<Module | nu
   return groupModules(rows, (linkResult.results ?? []) as LinkRow[])[0] ?? null
 }
 
-export async function listLinks(db: D1Database): Promise<Link[]> {
+export async function listLinks(db: D1Database, scope: NavScope = 'public'): Promise<Link[]> {
   const result = await db
-    .prepare(`SELECT ${LINK_COLUMNS} FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`)
+    .prepare(
+      `SELECT ${LINK_COLUMNS} FROM links
+       WHERE module_id IN (SELECT id FROM modules WHERE scope = ?)
+       ORDER BY module_id ASC, sort_order ASC, id ASC`,
+    )
+    .bind(scope)
     .all<LinkRow>()
   return ((result.results ?? []) as LinkRow[]).map(mapLink)
 }
@@ -101,14 +119,21 @@ export async function getLink(db: D1Database, id: number): Promise<Link | null> 
 
 /* ── 模块 ────────────────────────────────────────────────────────── */
 
-export async function createModule(db: D1Database, name: string, color: string): Promise<number> {
+export async function createModule(
+  db: D1Database,
+  name: string,
+  color: string,
+  scope: NavScope = 'public',
+): Promise<number> {
+  // 排序位次按数据域各自从 0 开始，私密页新增模块不会影响首页顺序
   const row = await db
-    .prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM modules')
+    .prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM modules WHERE scope = ?')
+    .bind(scope)
     .first<{ m: number }>()
   const next = (row?.m ?? -1) + 1
   const result = await db
-    .prepare('INSERT INTO modules (name, color, sort_order) VALUES (?, ?, ?)')
-    .bind(name, color, next)
+    .prepare('INSERT INTO modules (name, color, sort_order, scope) VALUES (?, ?, ?, ?)')
+    .bind(name, color, next, scope)
     .run()
   return Number(result.meta.last_row_id ?? 0)
 }
@@ -321,10 +346,14 @@ export async function exportBundle(db: D1Database): Promise<ExportBundle> {
   }
 }
 
+/**
+ * 只清空首页（public）数据。
+ * 私密页不在导出文件里，误删无法找回，所以「清空 / 导入 / 示例数据」都不碰它。
+ */
 export async function wipeAll(db: D1Database): Promise<void> {
   await db.batch([
-    db.prepare('DELETE FROM links'),
-    db.prepare('DELETE FROM modules'),
+    db.prepare("DELETE FROM links WHERE module_id IN (SELECT id FROM modules WHERE scope = 'public')"),
+    db.prepare("DELETE FROM modules WHERE scope = 'public'"),
   ])
 }
 

@@ -58,7 +58,7 @@ import {
 } from '../_lib/repo'
 import type { ExportBundle, LinkInput } from '../_lib/repo'
 import { COLOR_KEYS, SEARCH_ENGINE_KEYS, SITE_VERSION } from '../_lib/types'
-import type { Env } from '../_lib/types'
+import type { Env, NavScope } from '../_lib/types'
 
 type Ctx = EventContext<Env, string, Record<string, unknown>>
 
@@ -130,7 +130,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return removed ? ok({ id: tokenId }) : fail('令牌不存在', 404, 'not_found')
     }
 
-    if (route === 'nav' && method === 'GET') return ok(await getNav(env.DB))
+    if (route === 'nav' && method === 'GET') return ok(await getNav(env.DB, readScope(url.searchParams.get('scope'))))
     if (route === 'settings' && method === 'POST') return await handleSettings(env, request)
     if (route === 'reorder' && method === 'POST') {
       const body = await readJson(context.request)
@@ -138,7 +138,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return ok({ updated: count })
     }
 
-    if (route === 'modules' && method === 'GET') return ok({ modules: await listModules(env.DB) })
+    if (route === 'modules' && method === 'GET') {
+      return ok({ modules: await listModules(env.DB, readScope(url.searchParams.get('scope'))) })
+    }
     if (route === 'modules' && method === 'POST') return await handleModuleCreate(env, request)
 
     const moduleId = matchId(route, 'modules')
@@ -154,7 +156,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
-    if (route === 'links' && method === 'GET') return ok({ links: await listLinks(env.DB) })
+    if (route === 'links' && method === 'GET') {
+      return ok({ links: await listLinks(env.DB, readScope(url.searchParams.get('scope'))) })
+    }
     if (route === 'links' && method === 'POST') return await handleLinkCreate(env, request)
 
     // 点击上报：只累计所属模块的热度，不改变其它任何数据
@@ -197,6 +201,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 function matchId(route: string, prefix: string): number | null {
   const matched = route.match(new RegExp(`^${prefix}/(\\d+)$`))
   return matched ? Number(matched[1]) : null
+}
+
+/** 只认 public / private；拼错或乱传一律按 public，避免把私密模块暴露到首页 */
+function readScope(value: unknown): NavScope {
+  return value === 'private' ? 'private' : 'public'
 }
 
 /* ── 账号 ────────────────────────────────────────────────────────── */
@@ -315,11 +324,12 @@ async function handleTokenCreate(env: Env, request: Request, user: SessionUser):
 /* ── 模块与链接 ──────────────────────────────────────────────────── */
 
 async function handleModuleCreate(env: Env, request: Request): Promise<Response> {
-  const body = await readJson<{ name?: unknown; color?: unknown }>(request)
+  const body = await readJson<{ name?: unknown; color?: unknown; scope?: unknown }>(request)
   const name = reqStr(body.name, 'name', 32)
   const color = pickOne(body.color, COLOR_KEYS, 'mint')
-  const id = await createModule(env.DB, name, color)
-  return ok({ id, name, color })
+  const scope = readScope(body.scope)
+  const id = await createModule(env.DB, name, color, scope)
+  return ok({ id, name, color, scope })
 }
 
 async function handleModuleUpdate(env: Env, request: Request, id: number): Promise<Response> {

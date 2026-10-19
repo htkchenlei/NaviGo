@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { GripVertical, Plus, RefreshCw, TriangleAlert } from 'lucide-vue-next'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Download, GripVertical, Plus, RefreshCw, TriangleAlert } from 'lucide-vue-next'
 import { VueDraggable } from 'vue-draggable-plus'
 import AppHeader from '@/components/AppHeader.vue'
 import ModuleCard from '@/components/ModuleCard.vue'
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog.vue'
+import ImportFromNavDialog from '@/components/dialogs/ImportFromNavDialog.vue'
 import LinkDialog from '@/components/dialogs/LinkDialog.vue'
 import ModuleDialog from '@/components/dialogs/ModuleDialog.vue'
 import PasswordDialog from '@/components/dialogs/PasswordDialog.vue'
@@ -18,12 +19,17 @@ import { useAuthStore } from '@/stores/auth'
 import { useNavStore } from '@/stores/nav'
 import { useToastStore } from '@/stores/toast'
 import { nextColor } from '@/utils/palette'
-import type { NavLink, NavModule } from '@/api/types'
+import type { NavLink, NavModule, NavScope } from '@/api/types'
 
 const nav = useNavStore()
 const auth = useAuthStore()
 const toast = useToastStore()
 const router = useRouter()
+const route = useRoute()
+
+/** 同一个组件服务两条路由：/ 读 public，/private 读 private */
+const scope = computed<NavScope>(() => (route.meta.scope === 'private' ? 'private' : 'public'))
+const isPrivate = computed(() => scope.value === 'private')
 
 const moduleDialogOpen = ref(false)
 const editingModule = ref<NavModule | null>(null)
@@ -34,6 +40,7 @@ const linkModuleName = ref('')
 const editingLink = ref<NavLink | null>(null)
 
 const passwordDialogOpen = ref(false)
+const importDialogOpen = ref(false)
 
 const confirmState = reactive({
   open: false,
@@ -58,7 +65,12 @@ const showNoResult = computed(
 
 onMounted(async () => {
   nav.initMode()
-  await nav.load()
+  await nav.load(scope.value)
+})
+
+// 两个路由复用同一个组件时（例如站内跳转），作用域变化要重新拉对应数据
+watch(scope, (next) => {
+  void nav.load(next)
 })
 
 function openCreateModule(): void {
@@ -168,6 +180,15 @@ async function loadDemo(): Promise<void> {
               <span class="h-1.5 w-1.5 rounded-pill bg-macaron-teal" aria-hidden="true" />
               {{ nav.modeMeta.label }}
             </span>
+            <BaseButton
+              v-if="nav.manage && isPrivate"
+              variant="outline"
+              size="sm"
+              @click="importDialogOpen = true"
+            >
+              <template #icon><Download :size="15" /></template>
+              从导航页导入
+            </BaseButton>
             <BaseButton v-if="nav.manage" size="sm" @click="openCreateModule">
               <template #icon><Plus :size="15" /></template>
               新增模块
@@ -198,7 +219,10 @@ async function loadDemo(): Promise<void> {
           class="flex items-center gap-2xs rounded-lg bg-accent-wash px-md py-sm text-sm text-ink-2"
         >
           <GripVertical :size="15" class="shrink-0 text-accent-strong" aria-hidden="true" />
-          <span v-if="nav.autoSortEnabled">
+          <span v-if="isPrivate">
+            私密页管理模式：这里的增删改只影响 /private，不会动到首页。可以用「从导航页导入」把首页的整个模块或单个网址复制过来。
+          </span>
+          <span v-else-if="nav.autoSortEnabled">
             自动排序已开启：模块按累计点击次数排列，拖拽暂时停用。想把某个模块钉在指定位次，请到「后台设置 → 模块排序」调整。
           </span>
           <span v-else>
@@ -216,7 +240,7 @@ async function loadDemo(): Promise<void> {
             <p class="text-sm font-semibold text-danger-strong">加载导航数据失败</p>
             <p class="text-xs text-danger-strong">{{ nav.loadError }}</p>
           </div>
-          <BaseButton variant="outline" @click="nav.load()">
+          <BaseButton variant="outline" @click="nav.load(scope)">
             <template #icon><RefreshCw :size="15" /></template>
             重试
           </BaseButton>
@@ -224,15 +248,19 @@ async function loadDemo(): Promise<void> {
 
         <EmptyState
           v-else-if="showEmpty"
-          title="还没有任何模块"
-          description="先建一个模块，把同一类地址放进去；也可以先载入一份示例数据找找感觉。"
+          :title="isPrivate ? '私密页还没有内容' : '还没有任何模块'"
+          :description="
+            isPrivate
+              ? '开启管理模式后，用「从导航页导入」把首页的整个模块或单个网址复制过来；也可以直接新建模块。'
+              : '先建一个模块，把同一类地址放进去；也可以先载入一份示例数据找找感觉。'
+          "
         >
           <template #action>
             <BaseButton @click="openCreateModule">
               <template #icon><Plus :size="16" /></template>
               创建第一个模块
             </BaseButton>
-            <BaseButton variant="outline" @click="loadDemo">载入示例数据</BaseButton>
+            <BaseButton v-if="!isPrivate" variant="outline" @click="loadDemo">载入示例数据</BaseButton>
           </template>
         </EmptyState>
 
@@ -311,6 +339,8 @@ async function loadDemo(): Promise<void> {
       @close="confirmState.open = false"
       @confirm="confirmState.run"
     />
+
+    <ImportFromNavDialog :open="importDialogOpen" @close="importDialogOpen = false" />
 
     <PasswordDialog :open="passwordDialogOpen" @close="passwordDialogOpen = false" />
   </div>

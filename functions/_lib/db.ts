@@ -32,8 +32,10 @@ const SCHEMA_STATEMENTS: string[] = [
      color TEXT NOT NULL DEFAULT 'mint',
      sort_order INTEGER NOT NULL DEFAULT 0,
      click_count INTEGER NOT NULL DEFAULT 0,
-     pinned_rank INTEGER
+     pinned_rank INTEGER,
+     scope TEXT NOT NULL DEFAULT 'public'
    )`,
+  // 注意：scope 的索引放在迁移语句里建，旧库要先补列才能建索引
   `CREATE TABLE IF NOT EXISTS links (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      module_id INTEGER NOT NULL,
@@ -81,6 +83,9 @@ const MIGRATION_STATEMENTS: string[] = [
   // 模块自动排序：点击计数 + 固定位置
   'ALTER TABLE modules ADD COLUMN click_count INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE modules ADD COLUMN pinned_rank INTEGER',
+  // 数据域：public = 首页，private = /private 私密页；旧数据全部归入 public
+  "ALTER TABLE modules ADD COLUMN scope TEXT NOT NULL DEFAULT 'public'",
+  'CREATE INDEX IF NOT EXISTS idx_modules_scope ON modules (scope, sort_order)',
 ]
 
 let schemaReady = false

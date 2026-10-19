@@ -16,6 +16,16 @@ const router = createRouter({
       component: () => import('@/views/HomeView.vue'),
     },
     {
+      /**
+       * 私密页：不在任何界面里放入口，必须手动输入 /private 才能进入。
+       * 与首页复用同一个组件，由 meta.scope 决定读写哪个数据域。
+       */
+      path: '/private',
+      name: 'private',
+      component: () => import('@/views/HomeView.vue'),
+      meta: { scope: 'private' },
+    },
+    {
       path: '/admin',
       name: 'admin',
       component: () => import('@/views/AdminView.vue'),
