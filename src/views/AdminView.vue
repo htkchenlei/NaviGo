@@ -122,6 +122,14 @@ async function pinModule(id: number, event: Event): Promise<void> {
     select.value = current?.pinnedRank ? String(current.pinnedRank) : ''
     return
   }
+  if (raw && !nav.autoSortEnabled) {
+    // 位次已经写库，但自动排序没开时它不会改变任何显示顺序，必须说清楚
+    toast.info(
+      `已记录「${name}」固定在第 ${raw} 位`,
+      '但「自动调整模块顺序」还没开启并保存，现在排序不会变化。',
+    )
+    return
+  }
   toast.success(raw ? `已把「${name}」固定在第 ${raw} 位` : `「${name}」已取消固定`)
 }
 
