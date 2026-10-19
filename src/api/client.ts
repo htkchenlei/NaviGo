@@ -84,13 +84,18 @@ export const api = {
   fetchNav: () => request<NavPayload>('nav'),
 
   createModule: (name: string, color: string) => post<NavModule>('modules', { name, color }),
-  updateModule: (id: number, patch: { name?: string; color?: string }) =>
-    put<unknown>(`modules/${id}`, patch),
+  updateModule: (
+    id: number,
+    patch: { name?: string; color?: string; pinnedRank?: number | null },
+  ) => put<unknown>(`modules/${id}`, patch),
   deleteModule: (id: number) => request<unknown>(`modules/${id}`, { method: 'DELETE' }),
 
   createLink: (moduleId: number, payload: LinkPayload) => post<unknown>('links', { moduleId, ...payload }),
   updateLink: (id: number, payload: Partial<LinkPayload>) => put<unknown>(`links/${id}`, payload),
   deleteLink: (id: number) => request<unknown>(`links/${id}`, { method: 'DELETE' }),
+  /** 点击热度上报：只累加所属模块的计数 */
+  trackLinkClick: (id: number) =>
+    post<{ moduleId: number; clicks: number }>(`links/${id}/click`),
 
   reorder: (payload: {
     modules?: { id: number; sortOrder: number }[]

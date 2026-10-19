@@ -11,10 +11,61 @@ const DEFAULT_SETTINGS: NavSettings = {
   fallback_wan: '1',
   password_changed: '0',
   search_engine: 'google',
+  auto_sort_modules: '0',
 }
 
+/** 兼容旧后端 / 旧备份：缺字段时补默认值，避免 undefined 参与排序比较 */
 function cloneModules(source: NavModule[]): NavModule[] {
-  return source.map((module) => ({ ...module, links: module.links.map((link) => ({ ...link })) }))
+  return source.map((module) => ({
+    ...module,
+    clicks: module.clicks ?? 0,
+    pinnedRank: module.pinnedRank ?? null,
+    links: module.links.map((link) => ({ ...link })),
+  }))
+}
+
+/**
+ * 自动排序：先把设了固定位次的模块按位次占坑，
+ * 剩下的位置由其它模块按点击数降序（同分则保持手动顺序）依次填满。
+ */
+function sortByHeat(source: NavModule[]): NavModule[] {
+  if (source.length < 2) return source
+
+  const manualIndex = new Map(source.map((module, index) => [module.id, index]))
+  const slots: (NavModule | null)[] = new Array(source.length).fill(null)
+  const placed = new Set<number>()
+
+  const pinned = source
+    .filter((module) => module.pinnedRank !== null)
+    .sort(
+      (a, b) =>
+        (a.pinnedRank ?? 1) - (b.pinnedRank ?? 1) ||
+        (manualIndex.get(a.id) ?? 0) - (manualIndex.get(b.id) ?? 0),
+    )
+
+  for (const module of pinned) {
+    // 位次越界或被先来的固定模块占用时，顺延到下一个空位
+    let slot = Math.min(Math.max((module.pinnedRank ?? 1) - 1, 0), slots.length - 1)
+    while (slot < slots.length && slots[slot]) slot += 1
+    if (slot >= slots.length) continue
+    slots[slot] = module
+    placed.add(module.id)
+  }
+
+  const rest = source
+    .filter((module) => !placed.has(module.id))
+    .sort(
+      (a, b) => b.clicks - a.clicks || (manualIndex.get(a.id) ?? 0) - (manualIndex.get(b.id) ?? 0),
+    )
+
+  let cursor = 0
+  for (const module of rest) {
+    while (cursor < slots.length && slots[cursor]) cursor += 1
+    slots[cursor] = module
+    cursor += 1
+  }
+
+  return slots.filter((module): module is NavModule => module !== null)
 }
 
 export interface ResolvedLink {
@@ -41,7 +92,13 @@ export const useNavStore = defineStore('nav', () => {
   let lastGood: NavModule[] = []
 
   const allowWanFallback = computed(() => settings.value.fallback_wan !== '0')
+  const autoSortEnabled = computed(() => settings.value.auto_sort_modules === '1')
   const totalLinks = computed(() => modules.value.reduce((sum, module) => sum + module.links.length, 0))
+
+  /** 展示顺序：自动排序开启时按热度重排，关闭时完全回退到手动 sort_order */
+  const orderedModules = computed(() =>
+    autoSortEnabled.value ? sortByHeat(modules.value) : modules.value,
+  )
 
   /** 搜索命中的链接 id 集合。null 表示未搜索，全部可见。 */
   const visibleLinkIds = computed<Set<number> | null>(() => {
@@ -70,10 +127,11 @@ export const useNavStore = defineStore('nav', () => {
    * 具体哪些链接可见交给 visibleLinkIds 在渲染层控制。
    */
   const visibleModules = computed(() => {
+    const list = orderedModules.value
     const ids = visibleLinkIds.value
-    if (!ids) return modules.value
+    if (!ids) return list
     const keyword = query.value.trim().toLowerCase()
-    return modules.value.filter(
+    return list.filter(
       (module) =>
         module.name.toLowerCase().includes(keyword) || module.links.some((link) => ids.has(link.id)),
     )
@@ -119,7 +177,7 @@ export const useNavStore = defineStore('nav', () => {
     loadError.value = null
     try {
       const payload = await api.fetchNav()
-      modules.value = payload.modules
+      modules.value = cloneModules(payload.modules)
       settings.value = { ...DEFAULT_SETTINGS, ...payload.settings }
       version.value = payload.version
       lastGood = cloneModules(payload.modules)
@@ -137,7 +195,7 @@ export const useNavStore = defineStore('nav', () => {
   }
 
   function applyPayload(nextModules: NavModule[], nextSettings?: NavSettings): void {
-    modules.value = nextModules
+    modules.value = cloneModules(nextModules)
     if (nextSettings) settings.value = { ...DEFAULT_SETTINGS, ...nextSettings }
     lastGood = cloneModules(nextModules)
   }
@@ -148,7 +206,17 @@ export const useNavStore = defineStore('nav', () => {
     const toast = useToastStore()
     try {
       const created = await api.createModule(name, color)
-      modules.value = [...modules.value, { id: created.id, name, color: created.color ?? color, links: [] }]
+      modules.value = [
+        ...modules.value,
+        {
+          id: created.id,
+          name,
+          color: created.color ?? color,
+          clicks: 0,
+          pinnedRank: null,
+          links: [],
+        },
+      ]
       lastGood = cloneModules(modules.value)
       toast.success(`已创建模块「${name}」`)
       return true
@@ -170,6 +238,23 @@ export const useNavStore = defineStore('nav', () => {
     } catch (error) {
       Object.assign(module, before)
       useToastStore().error('修改模块失败', error instanceof Error ? error.message : undefined)
+      return false
+    }
+  }
+
+  /** 设定 / 取消固定位次。传 null 表示回到按热度浮动 */
+  async function setModulePin(id: number, rank: number | null): Promise<boolean> {
+    const module = modules.value.find((item) => item.id === id)
+    if (!module) return false
+    const before = module.pinnedRank
+    module.pinnedRank = rank
+    try {
+      await api.updateModule(id, { pinnedRank: rank })
+      lastGood = cloneModules(modules.value)
+      return true
+    } catch (error) {
+      module.pinnedRank = before
+      useToastStore().error('固定位置保存失败', error instanceof Error ? error.message : undefined)
       return false
     }
   }
@@ -240,6 +325,17 @@ export const useNavStore = defineStore('nav', () => {
       useToastStore().error('删除链接失败', error instanceof Error ? error.message : undefined)
       return false
     }
+  }
+
+  /**
+   * 点击热度上报。这里刻意不更新本地 clicks：
+   * 用户刚点开一个地址时模块立刻跳位会显得界面在乱动，
+   * 热度变化留到下次刷新自然生效。
+   */
+  function trackClick(linkId: number): void {
+    void api.trackLinkClick(linkId).catch((error) => {
+      console.warn('[navigo] 点击统计上报失败', error)
+    })
   }
 
   function findLink(linkId: number): { module: NavModule; link: NavModule['links'][number] } | null {
@@ -340,7 +436,9 @@ export const useNavStore = defineStore('nav', () => {
     query,
     manage,
     allowWanFallback,
+    autoSortEnabled,
     totalLinks,
+    orderedModules,
     visibleModules,
     visibleLinkIds,
     isFiltering,
@@ -355,10 +453,12 @@ export const useNavStore = defineStore('nav', () => {
     addModule,
     editModule,
     removeModule,
+    setModulePin,
     addLink,
     editLink,
     removeLink,
     findLink,
+    trackClick,
     nudgeModule,
     nudgeLink,
     persistOrder,

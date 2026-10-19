@@ -34,7 +34,10 @@ CREATE TABLE IF NOT EXISTS modules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   color TEXT NOT NULL DEFAULT 'mint',
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  -- 自动排序用：模块下所有地址的累计点击数，以及「固定到第几位」（1 起，NULL = 不固定）
+  click_count INTEGER NOT NULL DEFAULT 0,
+  pinned_rank INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS links (

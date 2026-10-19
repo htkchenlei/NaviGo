@@ -28,8 +28,11 @@ const nav = useNavStore()
 const swatch = computed(() => swatchOf(props.module.color))
 const empty = computed(() => props.module.links.length === 0)
 
-/** 搜索与拖拽不能同时用：隐藏的条目仍在 DOM 里，拖动会让排序结果变得不可预期 */
-const dragDisabled = computed(() => !props.manage || nav.isFiltering)
+/**
+ * 搜索与拖拽不能同时用：隐藏的条目仍在 DOM 里，拖动会让排序结果变得不可预期。
+ * 自动排序开启时顺序由点击热度决定，手动拖拽同样没有意义。
+ */
+const dragDisabled = computed(() => !props.manage || nav.isFiltering || nav.autoSortEnabled)
 
 function isVisible(link: NavLink): boolean {
   return !props.visibleLinkIds || props.visibleLinkIds.has(link.id)
@@ -42,9 +45,10 @@ function isVisible(link: NavLink): boolean {
       <button
         v-if="manage"
         type="button"
-        class="nv-module-grip flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded-sm text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-accent-strong active:cursor-grabbing"
+        class="nv-module-grip flex h-9 w-7 shrink-0 cursor-grab items-center justify-center rounded-sm text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-accent-strong active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+        :disabled="dragDisabled"
         :aria-label="`拖动排序：${module.name}`"
-        :title="`拖动排序：${module.name}`"
+        :title="dragDisabled ? '当前不可拖动排序' : `拖动排序：${module.name}`"
       >
         <GripVertical :size="16" aria-hidden="true" />
       </button>
@@ -62,12 +66,19 @@ function isVisible(link: NavLink): boolean {
       >
         {{ module.links.length }}
       </span>
+      <span
+        v-if="nav.autoSortEnabled"
+        class="shrink-0 rounded-pill bg-accent-wash px-xs py-[2px] text-2xs font-semibold text-accent-strong"
+        :title="`累计点击 ${module.clicks} 次，自动排序依据`"
+      >
+        点击 {{ module.clicks }}
+      </span>
 
       <div v-if="manage" class="ml-auto flex shrink-0 items-center gap-2xs">
         <button
           type="button"
           class="flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="index === 0"
+          :disabled="nav.autoSortEnabled || index === 0"
           :aria-label="`上移模块 ${module.name}`"
           title="上移模块"
           @click="nav.nudgeModule(module.id, -1)"
@@ -77,7 +88,7 @@ function isVisible(link: NavLink): boolean {
         <button
           type="button"
           class="flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-micro ease-out hover:bg-surface-3 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="index >= total - 1"
+          :disabled="nav.autoSortEnabled || index >= total - 1"
           :aria-label="`下移模块 ${module.name}`"
           title="下移模块"
           @click="nav.nudgeModule(module.id, 1)"

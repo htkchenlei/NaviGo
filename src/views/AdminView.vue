@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  ListOrdered,
   LogOut,
   Plus,
   RefreshCw,
@@ -26,6 +27,7 @@ import PasswordDialog from '@/components/dialogs/PasswordDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import { api } from '@/api/client'
+import { swatchOf } from '@/utils/palette'
 import { useAuthStore } from '@/stores/auth'
 import { useNavStore } from '@/stores/nav'
 import { useToastStore } from '@/stores/toast'
@@ -36,7 +38,7 @@ const auth = useAuthStore()
 const toast = useToastStore()
 const router = useRouter()
 
-const form = reactive({ title: '', subtitle: '', fallback: true })
+const form = reactive({ title: '', subtitle: '', fallback: true, autoSort: false })
 const savingSite = ref(false)
 const importing = ref(false)
 const health = ref<HealthInfo | null>(null)
@@ -88,7 +90,8 @@ const dirty = computed(
   () =>
     form.title !== (nav.settings.site_title ?? '') ||
     form.subtitle !== (nav.settings.site_subtitle ?? '') ||
-    String(form.fallback) !== (nav.settings.fallback_wan !== '0' ? 'true' : 'false'),
+    String(form.fallback) !== (nav.settings.fallback_wan !== '0' ? 'true' : 'false') ||
+    String(form.autoSort) !== (nav.settings.auto_sort_modules === '1' ? 'true' : 'false'),
 )
 
 onMounted(async () => {
@@ -102,6 +105,24 @@ function syncForm(): void {
   form.title = nav.settings.site_title ?? 'NaviGo'
   form.subtitle = nav.settings.site_subtitle ?? ''
   form.fallback = nav.settings.fallback_wan !== '0'
+  form.autoSort = nav.settings.auto_sort_modules === '1'
+}
+
+/** 按导航页真实展示顺序列出模块，改完位次立刻能看到新排序 */
+const rankedModules = computed(() => nav.orderedModules)
+
+async function pinModule(id: number, event: Event): Promise<void> {
+  const select = event.target as HTMLSelectElement
+  const raw = select.value
+  const name = nav.modules.find((module) => module.id === id)?.name ?? ''
+  const ok = await nav.setModulePin(id, raw ? Number(raw) : null)
+  if (!ok) {
+    // 保存失败时把下拉框拨回库里的真实值
+    const current = nav.modules.find((module) => module.id === id)
+    select.value = current?.pinnedRank ? String(current.pinnedRank) : ''
+    return
+  }
+  toast.success(raw ? `已把「${name}」固定在第 ${raw} 位` : `「${name}」已取消固定`)
 }
 
 async function loadHealth(): Promise<void> {
@@ -123,6 +144,7 @@ async function saveSite(): Promise<void> {
     site_title: form.title.trim(),
     site_subtitle: form.subtitle.trim(),
     fallback_wan: form.fallback ? '1' : '0',
+    auto_sort_modules: form.autoSort ? '1' : '0',
   })
   savingSite.value = false
   if (ok) toast.success('站点设置已保存')
@@ -427,6 +449,29 @@ function expiryOf(token: ApiTokenMeta): string {
               </button>
             </div>
 
+            <div class="flex items-start justify-between gap-md rounded-md bg-surface-2 px-md py-sm">
+              <div class="flex flex-col gap-2xs">
+                <span class="text-sm font-semibold text-ink-2">自动调整模块顺序</span>
+                <span class="text-xs text-ink-3">
+                  按模块的累计点击次数排序，点得越多越靠前；开启后可在导航页管理模式里把某个模块固定到指定位置。
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="form.autoSort"
+                aria-label="自动调整模块顺序"
+                class="relative mt-2xs h-7 w-12 shrink-0 rounded-pill transition-colors duration-short ease-out"
+                :class="form.autoSort ? 'bg-accent-strong' : 'bg-rule-strong'"
+                @click="form.autoSort = !form.autoSort"
+              >
+                <span
+                  class="absolute top-[3px] h-[22px] w-[22px] rounded-pill bg-surface shadow-whisper transition-transform duration-short ease-out"
+                  :style="{ left: '3px', transform: form.autoSort ? 'translateX(20px)' : 'translateX(0)' }"
+                />
+              </button>
+            </div>
+
             <BaseButton :loading="savingSite" @click="saveSite">
               <template #icon><Save :size="16" /></template>
               保存站点设置
@@ -459,6 +504,61 @@ function expiryOf(token: ApiTokenMeta): string {
                 退出全部设备
               </BaseButton>
             </div>
+          </section>
+
+          <section :class="[cardClass, 'lg:col-span-2']">
+            <div class="flex items-center gap-sm">
+              <span class="flex h-10 w-10 items-center justify-center rounded-md bg-macaron-lilac-soft text-accent-strong" aria-hidden="true">
+                <ListOrdered :size="18" />
+              </span>
+              <div class="flex flex-col">
+                <h2 class="text-md text-ink">模块排序</h2>
+                <p class="text-xs text-ink-3">
+                  按累计点击数自动排列；也可以把某个模块钉死在指定位次，改完立即生效
+                </p>
+              </div>
+            </div>
+
+            <p
+              v-if="!nav.autoSortEnabled"
+              class="rounded-md bg-warning-soft px-md py-sm text-xs text-warning-strong"
+            >
+              当前「自动调整模块顺序」是关闭的，固定位次不会生效。到上方「站点设置」打开开关并保存后，这里的选择才会起作用。
+            </p>
+
+            <ul v-if="rankedModules.length" class="flex flex-col gap-2xs">
+              <li
+                v-for="(module, index) in rankedModules"
+                :key="module.id"
+                class="flex flex-wrap items-center gap-sm rounded-md bg-surface-2 px-md py-sm"
+              >
+                <span
+                  class="w-6 shrink-0 text-center text-sm font-semibold text-ink-2"
+                  :title="`当前实际排第 ${index + 1} 位`"
+                >
+                  {{ index + 1 }}
+                </span>
+                <span
+                  class="h-4 w-1.5 shrink-0 rounded-pill"
+                  :style="{ backgroundColor: swatchOf(module.color).solid }"
+                  aria-hidden="true"
+                />
+                <span class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+                  {{ module.name }}
+                </span>
+                <span class="shrink-0 text-xs text-ink-3">点击 {{ module.clicks }}</span>
+                <select
+                  :value="module.pinnedRank ?? ''"
+                  class="h-9 shrink-0 rounded-sm bg-surface px-xs text-xs text-ink ring-1 ring-inset ring-rule-strong transition-colors duration-micro ease-out hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent-3"
+                  :aria-label="`固定「${module.name}」的排序位置`"
+                  @change="pinModule(module.id, $event)"
+                >
+                  <option value="">不固定</option>
+                  <option v-for="n in nav.modules.length" :key="n" :value="n">第 {{ n }} 位</option>
+                </select>
+              </li>
+            </ul>
+            <p v-else class="text-xs text-ink-3">还没有模块，先去导航页创建模块。</p>
           </section>
 
           <section :class="[cardClass, 'lg:col-span-2']">

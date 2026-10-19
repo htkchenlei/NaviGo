@@ -51,6 +51,7 @@ import {
   importBundle,
   listLinks,
   listModules,
+  recordLinkClick,
   saveSettings,
   updateLink,
   updateModule,
@@ -155,6 +156,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (route === 'links' && method === 'GET') return ok({ links: await listLinks(env.DB) })
     if (route === 'links' && method === 'POST') return await handleLinkCreate(env, request)
+
+    // 点击上报：只累计所属模块的热度，不改变其它任何数据
+    const clickedId = route.match(/^links\/(\d+)\/click$/)?.[1]
+    if (clickedId && method === 'POST') {
+      const counted = await recordLinkClick(env.DB, Number(clickedId))
+      return counted
+        ? ok({ moduleId: counted.moduleId, clicks: counted.clicks })
+        : fail('链接不存在', 404, 'not_found')
+    }
 
     const linkId = matchId(route, 'links')
     if (linkId !== null) {
@@ -313,10 +323,20 @@ async function handleModuleCreate(env: Env, request: Request): Promise<Response>
 }
 
 async function handleModuleUpdate(env: Env, request: Request, id: number): Promise<Response> {
-  const body = await readJson<{ name?: unknown; color?: unknown }>(request)
-  const patch: { name?: string; color?: string } = {}
+  const body = await readJson<{ name?: unknown; color?: unknown; pinnedRank?: unknown }>(request)
+  const patch: { name?: string; color?: string; pinnedRank?: number | null } = {}
   if (body.name !== undefined) patch.name = reqStr(body.name, 'name', 32)
   if (body.color !== undefined) patch.color = pickOne(body.color, COLOR_KEYS, 'mint')
+  if (body.pinnedRank !== undefined) {
+    // null 表示取消固定；数字是 1 起的固定位次
+    if (body.pinnedRank === null) {
+      patch.pinnedRank = null
+    } else {
+      const rank = reqId(body.pinnedRank, 'pinnedRank')
+      if (rank > 500) throw new HttpError('pinnedRank 最大 500')
+      patch.pinnedRank = rank
+    }
+  }
   const updated = await updateModule(env.DB, id, patch)
   return updated ? ok({ id, ...patch }) : fail('模块不存在或没有变化', 404, 'not_found')
 }
@@ -350,6 +370,14 @@ function readLinkInput(body: Record<string, unknown>, requireName: boolean): Lin
   }
 }
 
+/**
+ * 前端把开关序列化成 '1' / '0' 字符串，而 '0' 在 JS 里也是真值，
+ * 不能直接用三目判断，否则「关闭」会被存成「开启」。
+ */
+function isFlagOn(value: unknown): boolean {
+  return value === true || value === 1 || value === '1'
+}
+
 async function handleSettings(env: Env, request: Request): Promise<Response> {
   const body = await readJson<Record<string, unknown>>(request)
   const values: Record<string, string> = {}
@@ -357,9 +385,12 @@ async function handleSettings(env: Env, request: Request): Promise<Response> {
   if (body.site_subtitle !== undefined) {
     values.site_subtitle = optStr(body.site_subtitle, 'site_subtitle', 80) ?? ''
   }
-  if (body.fallback_wan !== undefined) values.fallback_wan = body.fallback_wan ? '1' : '0'
+  if (body.fallback_wan !== undefined) values.fallback_wan = isFlagOn(body.fallback_wan) ? '1' : '0'
   if (body.search_engine !== undefined) {
     values.search_engine = pickOne(body.search_engine, SEARCH_ENGINE_KEYS, 'google')
+  }
+  if (body.auto_sort_modules !== undefined) {
+    values.auto_sort_modules = isFlagOn(body.auto_sort_modules) ? '1' : '0'
   }
   await saveSettings(env.DB, values)
   return ok(values)

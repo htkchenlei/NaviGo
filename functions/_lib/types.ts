@@ -20,6 +20,10 @@ export interface ModuleRow {
   name: string
   color: string
   sort_order: number
+  /** 该模块下所有地址被点开的累计次数，自动排序的依据 */
+  click_count: number
+  /** 固定到第几位（1 起）；null 表示跟随点击热度排 */
+  pinned_rank: number | null
 }
 
 export interface LinkRow {
@@ -38,6 +42,10 @@ export interface Module {
   id: number
   name: string
   color: string
+  /** 累计点击数，自动排序开启时前端也会展示出来 */
+  clicks: number
+  /** 固定位置（1 起）；null 表示不固定 */
+  pinnedRank: number | null
   links: Link[]
 }
 
@@ -100,4 +108,6 @@ export const SETTING_DEFAULTS: Record<string, string> = {
   fallback_wan: '1',
   password_changed: '0',
   search_engine: 'google',
+  /** 1 = 模块按点击数自动排序；0 = 按手动拖拽的 sort_order */
+  auto_sort_modules: '0',
 }

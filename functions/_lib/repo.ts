@@ -4,7 +4,7 @@ import type { Link, LinkRow, Module, ModuleRow, NavPayload } from './types'
 export async function getNav(db: D1Database): Promise<NavPayload> {
   // 一次性取全量：导航页每次打开只有 1 次 API 往返，避免 N+1
   const [moduleResult, linkResult, settingResult] = await db.batch([
-    db.prepare('SELECT id, name, color, sort_order FROM modules ORDER BY sort_order ASC, id ASC'),
+    db.prepare(`SELECT ${MODULE_COLUMNS} FROM modules ORDER BY sort_order ASC, id ASC`),
     db.prepare(
       `SELECT id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order
        FROM links ORDER BY module_id ASC, sort_order ASC, id ASC`,
@@ -30,6 +30,8 @@ function groupModules(moduleRows: ModuleRow[], linkRows: LinkRow[]): Module[] {
     id: row.id,
     name: row.name,
     color: row.color,
+    clicks: row.click_count ?? 0,
+    pinnedRank: row.pinned_rank ?? null,
     links: [],
   }))
   const index = new Map(modules.map((module) => [module.id, module]))
@@ -58,7 +60,7 @@ function mapLink(row: LinkRow): Link {
 
 /* ── 单表查询（REST 风格读接口用，/api/nav 之外不再只能一把梭） ──── */
 
-const MODULE_COLUMNS = 'id, name, color, sort_order'
+const MODULE_COLUMNS = 'id, name, color, sort_order, click_count, pinned_rank'
 const LINK_COLUMNS =
   'id, module_id, name, description, icon_url, url_lan, url_vpn, url_wan, sort_order'
 
@@ -114,10 +116,10 @@ export async function createModule(db: D1Database, name: string, color: string):
 export async function updateModule(
   db: D1Database,
   id: number,
-  patch: { name?: string; color?: string },
+  patch: { name?: string; color?: string; pinnedRank?: number | null },
 ): Promise<boolean> {
   const sets: string[] = []
-  const values: (string | number)[] = []
+  const values: (string | number | null)[] = []
   if (patch.name !== undefined) {
     sets.push('name = ?')
     values.push(patch.name)
@@ -126,6 +128,10 @@ export async function updateModule(
     sets.push('color = ?')
     values.push(patch.color)
   }
+  if (patch.pinnedRank !== undefined) {
+    sets.push('pinned_rank = ?')
+    values.push(patch.pinnedRank)
+  }
   if (sets.length === 0) return true
   values.push(id)
   const result = await db
@@ -133,6 +139,25 @@ export async function updateModule(
     .bind(...values)
     .run()
   return (result.meta.changes ?? 0) > 0
+}
+
+/**
+ * 记录一次链接点击：计数冗余在模块上，自动排序时直接读 click_count，
+ * 不必每次排序都对 links 做聚合查询。
+ */
+export async function recordLinkClick(
+  db: D1Database,
+  linkId: number,
+): Promise<{ moduleId: number; clicks: number } | null> {
+  const row = await db
+    .prepare(
+      `UPDATE modules SET click_count = click_count + 1
+       WHERE id = (SELECT module_id FROM links WHERE id = ?)
+       RETURNING id, click_count`,
+    )
+    .bind(linkId)
+    .first<{ id: number; click_count: number }>()
+  return row ? { moduleId: row.id, clicks: row.click_count } : null
 }
 
 /** 删模块必须连同它的链接一起删，否则残留孤儿数据会污染下一次导入导出 */
@@ -265,7 +290,13 @@ export interface ExportBundle {
   version: string
   exportedAt: string
   settings: Record<string, string>
-  modules: { name: string; color: string; links: Omit<Link, 'id' | 'moduleId'>[] }[]
+  /** 可选：固定排序位置，旧备份里没有这个字段，导入时按未固定处理 */
+  modules: {
+    name: string
+    color: string
+    pinnedRank?: number | null
+    links: Omit<Link, 'id' | 'moduleId'>[]
+  }[]
 }
 
 export async function exportBundle(db: D1Database): Promise<ExportBundle> {
@@ -277,6 +308,7 @@ export async function exportBundle(db: D1Database): Promise<ExportBundle> {
     modules: nav.modules.map((module) => ({
       name: module.name,
       color: module.color,
+      pinnedRank: module.pinnedRank,
       links: module.links.map(({ name, description, iconUrl, urlLan, urlVpn, urlWan }) => ({
         name,
         description,
@@ -301,8 +333,8 @@ export async function importBundle(db: D1Database, bundle: ExportBundle): Promis
   let moduleOrder = 0
   for (const module of bundle.modules) {
     const moduleId = await db
-      .prepare('INSERT INTO modules (name, color, sort_order) VALUES (?, ?, ?)')
-      .bind(module.name, module.color, moduleOrder)
+      .prepare('INSERT INTO modules (name, color, sort_order, pinned_rank) VALUES (?, ?, ?, ?)')
+      .bind(module.name, module.color, moduleOrder, module.pinnedRank ?? null)
       .run()
     moduleOrder += 1
     const newId = Number(moduleId.meta.last_row_id ?? 0)

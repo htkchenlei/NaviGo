@@ -198,7 +198,12 @@ async function loadDemo(): Promise<void> {
           class="flex items-center gap-2xs rounded-lg bg-accent-wash px-md py-sm text-sm text-ink-2"
         >
           <GripVertical :size="15" class="shrink-0 text-accent-strong" aria-hidden="true" />
-          管理模式已开启：拖动手柄可以给模块和地址排序，排序结果会自动保存。
+          <span v-if="nav.autoSortEnabled">
+            自动排序已开启：模块按累计点击次数排列，拖拽暂时停用。想把某个模块钉在指定位次，请到「后台设置 → 模块排序」调整。
+          </span>
+          <span v-else>
+            管理模式已开启：拖动手柄可以给模块和地址排序，排序结果会自动保存。
+          </span>
         </p>
 
         <SkeletonGrid v-if="nav.loading && !nav.loaded" />
@@ -246,7 +251,7 @@ async function loadDemo(): Promise<void> {
           v-model="nav.modules"
           tag="div"
           handle=".nv-module-grip"
-          :disabled="!nav.manage || nav.isFiltering"
+          :disabled="!nav.manage || nav.isFiltering || nav.autoSortEnabled"
           :animation="200"
           ghost-class="nv-drop-target"
           class="flex flex-col gap-xl"

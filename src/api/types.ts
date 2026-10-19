@@ -20,6 +20,10 @@ export interface NavModule {
   id: number
   name: string
   color: ColorKey
+  /** 模块累计点击次数，自动排序的依据 */
+  clicks: number
+  /** 固定位次（1 起）；null 表示跟随热度排序 */
+  pinnedRank: number | null
   links: NavLink[]
 }
 
@@ -28,6 +32,8 @@ export interface NavSettings {
   site_subtitle: string
   fallback_wan: string
   password_changed: string
+  /** '1' = 模块按点击热度自动排序；'0' = 按手动拖拽顺序 */
+  auto_sort_modules: string
   [key: string]: string
 }
 
@@ -58,6 +64,8 @@ export interface ExportBundle {
   modules: {
     name: string
     color: string
+    /** 可选：固定排序位置，旧备份没有这个字段 */
+    pinnedRank?: number | null
     links: Omit<NavLink, 'id' | 'moduleId'>[]
   }[]
 }

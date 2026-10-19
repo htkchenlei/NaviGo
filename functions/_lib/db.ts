@@ -30,7 +30,9 @@ const SCHEMA_STATEMENTS: string[] = [
      id INTEGER PRIMARY KEY AUTOINCREMENT,
      name TEXT NOT NULL,
      color TEXT NOT NULL DEFAULT 'mint',
-     sort_order INTEGER NOT NULL DEFAULT 0
+     sort_order INTEGER NOT NULL DEFAULT 0,
+     click_count INTEGER NOT NULL DEFAULT 0,
+     pinned_rank INTEGER
    )`,
   `CREATE TABLE IF NOT EXISTS links (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +78,9 @@ const MIGRATION_STATEMENTS: string[] = [
   'ALTER TABLE links ADD COLUMN description TEXT',
   // 令牌改成「随时可查看」后需要存明文；旧库补列，历史行留 NULL（只显示掩码，无法再查看）
   'ALTER TABLE api_tokens ADD COLUMN token_plain TEXT',
+  // 模块自动排序：点击计数 + 固定位置
+  'ALTER TABLE modules ADD COLUMN click_count INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE modules ADD COLUMN pinned_rank INTEGER',
 ]
 
 let schemaReady = false

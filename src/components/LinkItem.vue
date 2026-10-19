@@ -40,6 +40,11 @@ const summaryIsDomain = computed(() => !props.link.description && Boolean(domain
 const tooltip = computed(() =>
   url.value ? `${props.link.name} — ${url.value}` : `${props.link.name}（当前模式无可用地址）`,
 )
+
+/** 只做热度上报，不拦截跳转；失败也静默，绝不能影响打开地址 */
+function onClick(): void {
+  if (clickable.value) nav.trackClick(props.link.id)
+}
 </script>
 
 <template>
@@ -130,6 +135,7 @@ const tooltip = computed(() =>
       :target="clickable ? '_blank' : undefined"
       :rel="clickable ? 'noopener noreferrer' : undefined"
       :title="tooltip"
+      @click="onClick"
       class="flex h-full w-full items-center gap-sm rounded-lg bg-surface p-sm ring-1 ring-inset ring-rule shadow-whisper transition-[box-shadow,transform] duration-short ease-out"
       :class="clickable ? 'hover:-translate-y-0.5 hover:shadow-card' : 'opacity-55'"
     >
