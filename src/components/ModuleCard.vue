@@ -66,13 +66,6 @@ function isVisible(link: NavLink): boolean {
       >
         {{ module.links.length }}
       </span>
-      <span
-        v-if="nav.autoSortEnabled"
-        class="shrink-0 rounded-pill bg-accent-wash px-xs py-[2px] text-2xs font-semibold text-accent-strong"
-        :title="`累计点击 ${module.clicks} 次，自动排序依据`"
-      >
-        点击 {{ module.clicks }}
-      </span>
 
       <div v-if="manage" class="ml-auto flex shrink-0 items-center gap-2xs">
         <button
